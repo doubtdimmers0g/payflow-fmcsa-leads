@@ -34,38 +34,23 @@ def scrape_fmcsa_actives():
     session.mount('https://', adapter)
     print("Session created")
     
-    # Get selection page to find recent dates
-    selection_url = "https://li-public.fmcsa.dot.gov/LIVIEW/PKG_REGISTER.prc_reg_list"
-    resp = session.get(selection_url, timeout=30)
-    soup = BeautifulSoup(resp.text, 'html.parser')
-    print("Selection page snippet:", resp.text[:2000])
-    print("Selection page loaded")
-    
-    detail_links = [a['href'] for a in soup.find_all('a', href=True) if 'pd_date' in a['href'] or 'reg_detail' in a['href']]
-    for a in soup.find_all('a', href=True):
-        if 'prc_reg_detail' in a['href']:
-            detail_links.append(a['href'])
-    print("Found", len(detail_links), "detail links")
-   
-    # Scrape the latest 7 detail pages
-    for link in detail_links[:7]:
-        if not link.startswith('http'):
-            link = 'https://li-public.fmcsa.dot.gov/LIVIEW/' + link
-        print("Processing link:", link)
+    for i in range(30):
+        d = today - timedelta(days=i)
+        url = f"https://li.fmcsa.dot.gov/lihtml/rptspdf/LI_REGISTER{d.strftime('%Y%m%d')}.PDF"
+        print("Trying URL:", url)
+        
         try:
-            detail_resp = session.get(link, timeout=30)
-            soup = BeautifulSoup(detail_resp.text, 'html.parser')
-            print("Detail page loaded, text length:", len(str(soup)))
-            
-            # GRANT DECISION NOTICES
-            grant_heading = soup.find(string=re.compile('GRANT DECISION NOTICES', re.I))
-            print("Grant heading found:", bool(grant_heading))
-            if grant_heading:
-                grant_div = grant_heading.find_parent('div') or grant_heading.find_parent('table') or grant_heading.find_parent('p')
-                if grant_div:
-                    grant_text = str(grant_div)
-                    print("Grant text snippet:", grant_text[:500])
-                    entries = re.findall(r"(MC-\d{6,7})\s+([\d/]+)\s+(.+?)(?=\nMC-|\n[A-Z ]+:|$)", grant_text, re.DOTALL | re.IGNORECASE)
+            resp = session.get(url, timeout=30)
+            if resp.status_code == 200:
+                print("Downloaded PDF for", d)
+                with pdfplumber.open(resp.content) as pdf:
+                    full_text = "".join(page.extract_text() or "" for page in pdf.pages)
+                
+                # GRANT DECISION NOTICES
+                grant_section = re.search(r"GRANT DECISION NOTICES:(.*?)(?=\n[A-Z ]+[: ]|$)", 
+                                        full_text, re.DOTALL | re.IGNORECASE)
+                if grant_section:
+                    entries = re.findall(r"(MC-\d{6,7})\s+([\d/]+)\s+(.+?)(?=\nMC-|\n[A-Z ]+:|$)", grant_section.group(1), re.DOTALL)
                     print("Grant entries found:", len(entries))
                     for mc, idate, raw in entries:
                         print("Found MC:", mc)
@@ -82,7 +67,7 @@ def scrape_fmcsa_actives():
                             ""   # notes
                         ])
         except Exception as e:
-            print("Error processing link:", str(e))
+            print("Error for", d, ":", str(e))
             continue
     
     if new_rows:
