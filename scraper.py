@@ -53,9 +53,13 @@ def scrape_fmcsa_actives():
                 if grant_match:
                     section = grant_match.group(1)
                     lines = [line.strip() for line in section.split('\n') if line.strip()]
+                    print(f"DEBUG {d}: GRANT section found — {len(lines)} lines")
+                    print("Sample first 20 lines:", [repr(l) for l in lines[:20]])
                     idx = 0
                     while idx < len(lines):
                         if re.match(r'MC-\d{6,7}', lines[idx]):
+                            print(f"DEBUG {d} MC match: {lines[idx]}")
+                            print("  Next 5 lines:", [repr(l) for l in lines[idx+1:idx+6]])
                             mc = lines[idx].strip()
                             if mc in existing_mcs:
                                 idx += 1
