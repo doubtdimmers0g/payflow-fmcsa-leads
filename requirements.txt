@@ -1,5 +1,6 @@
 requests
 pdfplumber
 pandas
+beautifulsoup4
 gspread
 google-auth
