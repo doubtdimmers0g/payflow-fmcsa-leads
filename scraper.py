@@ -35,13 +35,13 @@ def scrape_fmcsa_actives():
     session.mount('https://', adapter)
     print("Session created")
     
-    for i in range(3):  # change to 30 after test
+    for i in range(1):  # change to 30 after test
         d = today - timedelta(days=i)
         url = f"https://li-public.fmcsa.dot.gov/lihtml/rptspdf/LI_REGISTER{d.strftime('%Y%m%d')}.PDF"
         print("Trying URL:", url)
         
         try:
-            resp = session.get(url, timeout=15)
+            resp = session.get(url, timeout=30)
             if resp.status_code == 200:
                 print("Downloaded PDF for", d)
                 with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
