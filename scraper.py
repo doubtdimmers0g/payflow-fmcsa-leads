@@ -41,12 +41,12 @@ def scrape_fmcsa_actives():
     print("Selection page snippet:", resp.text[:2000])
     print("Selection page loaded")
     
-    detail_links = []
+    detail_links = [a['href'] for a in soup.find_all('a', href=True) if 'pd_date' in a['href'] or 'reg_detail' in a['href']]
     for a in soup.find_all('a', href=True):
         if 'prc_reg_detail' in a['href']:
             detail_links.append(a['href'])
     print("Found", len(detail_links), "detail links")
-    
+   
     # Scrape the latest 7 detail pages
     for link in detail_links[:7]:
         if not link.startswith('http'):
