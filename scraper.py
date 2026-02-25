@@ -10,6 +10,7 @@ import gspread
 
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from bs4 import BeautifulSoup
 
 def scrape_fmcsa_actives():
     SHEET_ID = os.environ['SHEET_ID']
