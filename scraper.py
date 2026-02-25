@@ -47,46 +47,53 @@ def scrape_fmcsa_actives():
                 with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
                     full_text = "".join(page.extract_text() or "" for page in pdf.pages)
                 
-                # ROBUST FULL-TEXT SCAN: Finds all MC entries anywhere in the PDF
-                print(f"DEBUG {d}: Scanning full PDF for MC grant entries...")
-                mc_matches = re.finditer(r'(MC-\d{5,8}[A-Z]?)', full_text, re.IGNORECASE)
-                
-                found_count = 0
-                seen_mcs_this_run = set()
-                for match in mc_matches:
-                    mc = match.group(1).upper()
-                    if mc in existing_mcs or mc in seen_mcs_this_run:
-                        continue
-                    seen_mcs_this_run.add(mc)
+                # RESTRICTED TO GRANT SECTION: Skip boilerplate/other sections, focus on detailed grants after header
+                print(f"DEBUG {d}: Scanning GRANT section for MC entries...")
+                grant_match = re.search(r"GRANT DECISION NOTICES", full_text, re.IGNORECASE)
+                if grant_match:
+                    # Start from after header (boilerplate is first, then the list)
+                    grant_text = full_text[grant_match.end():]
                     
-                    # Context window around the MC
-                    start = max(0, match.start() - 150)
-                    end = min(len(full_text), match.end() + 400)
-                    context = full_text[start:end]
+                    mc_matches = re.finditer(r'(MC-\d{5,8}[A-Z]?)', grant_text, re.IGNORECASE)
                     
-                    # Company extraction
-                    company_match = re.search(r'\b' + re.escape(mc) + r'\b\s*[:\-]?\s*([A-Z][A-Za-z0-9&\'\.\-\s/]{8,120}?)', context)
-                    company = company_match.group(1).strip() if company_match else "Unknown Company"
-                    company = re.sub(r'\s+', ' ', company)[:250]
+                    found_count = 0
+                    seen_mcs_this_run = set()
+                    for match in mc_matches:
+                        mc = match.group(1).upper()
+                        if mc in existing_mcs or mc in seen_mcs_this_run:
+                            continue
+                        seen_mcs_this_run.add(mc)
+                        
+                        # Context from grant_text only
+                        start = max(0, match.start() - 150)
+                        end = min(len(grant_text), match.end() + 400)
+                        context = grant_text[start:end]
+                        
+                        # Company extraction
+                        company_match = re.search(r'\b' + re.escape(mc) + r'\b\s*[:\-]?\s*([A-Z][A-Za-z0-9&\'\.\-\s/]{8,120}?)', context)
+                        company = company_match.group(1).strip() if company_match else "Unknown Company"
+                        company = re.sub(r'\s+', ' ', company)[:250]
+                        
+                        # Date
+                        date_match = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', context)
+                        idate = date_match.group(1) if date_match else d.strftime('%m/%d/%Y')
+                        
+                        new_rows.append([
+                            today.strftime('%Y-%m-%d'),
+                            idate,
+                            mc,
+                            company,
+                            re.sub(r'\s+', ' ', context.strip())[:600],
+                            "",
+                            ""
+                        ])
+                        print(f"Found new MC: {mc} | {company} | Date: {idate}")
+                        found_count += 1
                     
-                    # Date
-                    date_match = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', context)
-                    idate = date_match.group(1) if date_match else d.strftime('%m/%d/%Y')
-                    
-                    new_rows.append([
-                        today.strftime('%Y-%m-%d'),
-                        idate,
-                        mc,
-                        company,
-                        re.sub(r'\s+', ' ', context.strip())[:600],
-                        "",
-                        ""
-                    ])
-                    print(f"Found new MC: {mc} | {company} | Date: {idate}")
-                    found_count += 1
-                
-                print(f"DEBUG {d}: {found_count} new MCs added from this PDF")
-        
+                    print(f"DEBUG {d}: {found_count} new MCs added from GRANT section")             
+                else:
+                    print(f"DEBUG {d}: No GRANT section found")
+
         except Exception as e:
             print("Error for", d, ":", str(e))
             continue
