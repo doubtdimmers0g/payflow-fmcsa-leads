@@ -38,6 +38,7 @@ def scrape_fmcsa_actives():
     selection_url = "https://li-public.fmcsa.dot.gov/LIVIEW/PKG_REGISTER.prc_reg_list"
     resp = session.get(selection_url, timeout=30)
     soup = BeautifulSoup(resp.text, 'html.parser')
+    print("Selection page snippet:", resp.text[:2000])
     print("Selection page loaded")
     
     detail_links = []
