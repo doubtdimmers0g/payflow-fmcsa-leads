@@ -1,3 +1,5 @@
+import io
+import pdfplumber
 import requests
 import re
 import os
@@ -5,7 +7,6 @@ import json
 from datetime import date, timedelta
 from google.oauth2.service_account import Credentials
 import gspread
-from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -36,40 +37,53 @@ def scrape_fmcsa_actives():
     
     for i in range(30):
         d = today - timedelta(days=i)
-        url = f"https://li.fmcsa.dot.gov/lihtml/rptspdf/LI_REGISTER{d.strftime('%Y%m%d')}.PDF"
+        url = f"https://li-public.fmcsa.dot.gov/lihtml/rptspdf/LI_REGISTER{d.strftime('%Y%m%d')}.PDF"
         print("Trying URL:", url)
         
         try:
             resp = session.get(url, timeout=30)
             if resp.status_code == 200:
                 print("Downloaded PDF for", d)
-                with pdfplumber.open(resp.content) as pdf:
+                with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
                     full_text = "".join(page.extract_text() or "" for page in pdf.pages)
                 
                 # GRANT DECISION NOTICES
-                grant_section = re.search(r"GRANT DECISION NOTICES:(.*?)(?=\n[A-Z ]+[: ]|$)", 
+                grant_match = re.search(r"GRANT DECISION NOTICES:(.*?)(?=NAME CHANGES|REVOCATION|DISMISSALS|NON-FITNESS|DECISIONS AND NOTICES|$)", 
                                         full_text, re.DOTALL | re.IGNORECASE)
-                if grant_section:
-                    entries = re.findall(r"(MC-\d{6,7})\s+([\d/]+)\s+(.+?)(?=\nMC-|\n[A-Z ]+:|$)", grant_section.group(1), re.DOTALL)
-                    print("Grant entries found:", len(entries))
-                    for mc, idate, raw in entries:
-                        print("Found MC:", mc)
-                        if mc in existing_mcs:
-                            continue
-                        company = re.sub(r'\s+', ' ', raw.strip()[:250])
-                        new_rows.append([
-                            today.strftime('%Y-%m-%d'),
-                            idate,
-                            mc,
-                            company,
-                            raw.strip()[:500],
-                            "",  # called_status
-                            ""   # notes
-                        ])
+                if grant_match:
+                    section = grant_match.group(1)
+                    lines = [line.strip() for line in section.split('\n') if line.strip()]
+                    idx = 0
+                    while idx < len(lines):
+                        if re.match(r'MC-\d{6,7}', lines[idx]):
+                            mc = lines[idx].strip()
+                            if mc in existing_mcs:
+                                idx += 1
+                                continue
+                            # Grab next few lines for company
+                            company_raw = ' '.join(lines[idx+1:idx+5])[:250] if idx+1 < len(lines) else ''
+                            company = re.sub(r'\s+', ' ', company_raw.strip())
+                            # Date fallback
+                            date_match = re.search(r'(\d{2}/\d{2}/\d{4})', ' '.join(lines[idx:idx+8]))
+                            idate = date_match.group(1) if date_match else d.strftime('%m/%d/%Y')
+                            
+                            new_rows.append([
+                                today.strftime('%Y-%m-%d'),
+                                idate,
+                                mc,
+                                company,
+                                ' '.join(lines[idx:idx+12])[:500],  # more raw context
+                                "",  # called_status
+                                ""   # notes
+                            ])
+                            print("Found new MC:", mc, company)
+                            idx += 4  # safe skip for multi-line entries
+                        else:
+                            idx += 1
         except Exception as e:
             print("Error for", d, ":", str(e))
             continue
-    
+              
     if new_rows:
         sheet.append_rows(new_rows, value_input_option="RAW")
         print(f"Added {len(new_rows)} new grant MCs to Google Sheet.")
