@@ -18,63 +18,61 @@ def scrape_fmcsa_actives():
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     gc = gspread.authorize(creds)
-    sheet = gc.open_by_key(SHEET_ID).worksheet("Sheet1")  # or rename tab to "Leads"
+    sheet = gc.open_by_key(SHEET_ID).worksheet("Sheet1")
     
-    # Load existing MCs for dedup
     existing_data = sheet.get_all_records()
     existing_mcs = {row['mc_number'] for row in existing_data if 'mc_number' in row}
     
     today = date.today()
     new_rows = []
     
+    # Get list of available PDFs from selection page
+    selection_url = "https://li-public.fmcsa.dot.gov/LIVIEW/PKG_REGISTER.prc_reg_list"
     session = requests.Session()
     retry = Retry(total=5, backoff_factor=1)
     adapter = HTTPAdapter(max_retries=retry)
     session.mount('http://', adapter)
     session.mount('https://', adapter)
+    resp = session.get(selection_url, timeout=30)
+    soup = BeautifulSoup(resp.text, 'html.parser')
     
-    for i in range(2):
-        d = today - timedelta(days=i)
-        url = f"https://li.fmcsa.dot.gov/lihtml/rptspdf/LI_REGISTER{d.strftime('%Y%m%d')}.PDF"
-        
+    pdf_links = []
+    for a in soup.find_all('a', href=True):
+        if 'LI_REGISTER' in a['href'] and '.PDF' in a['href']:
+            pdf_links.append(a['href'])
+    
+    # Download the latest 7 PDFs
+    for link in pdf_links[:7]:
+        if not link.startswith('http'):
+            link = 'https://li.fmcsa.dot.gov' + link
         try:
-            resp = session.get(url, timeout=30)
-            if resp.status_code == 200:
-                break
+            pdf_resp = session.get(link, timeout=30)
+            if pdf_resp.status_code != 200:
+                continue
+            with pdfplumber.open(pdf_resp.content) as pdf:
+                full_text = "".join(page.extract_text() or "" for page in pdf.pages)
+            
+            # ACTIVE ones only
+            cpl_section = re.search(r"CERTIFICATE, PERMIT, LICENSE:(.*?)(?=\n[A-Z ]+[: ]|$)", 
+                                  full_text, re.DOTALL | re.IGNORECASE)
+            if cpl_section:
+                entries = re.findall(r"(MC-\d{6,7})\s+([\d/]+)\s+(.+?)(?=\nMC-|\n[A-Z ]+:|$)", 
+                                   cpl_section.group(1), re.DOTALL)
+                for mc, idate, raw in entries:
+                    if mc in existing_mcs:
+                        continue
+                    company = re.sub(r'\s+', ' ', raw.strip()[:250])
+                    new_rows.append([
+                        today.strftime('%Y-%m-%d'),
+                        idate,
+                        mc,
+                        company,
+                        raw.strip()[:500],
+                        "",  # called_status
+                        ""   # notes
+                    ])
         except:
-            resp = None
-        if resp and resp.status_code == 200:
-            break
-    else:
-        print("Could not download any PDF")
-        return
-    
-    with pdfplumber.open(resp.content) as pdf:
-        full_text = "".join(page.extract_text() or "" for page in pdf.pages)
-    
-    # ACTIVE ones only
-    cpl_section = re.search(r"CERTIFICATE, PERMIT, LICENSE:(.*?)(?=\n[A-Z ]+[: ]|$)", 
-                          full_text, re.DOTALL | re.IGNORECASE)
-    if not cpl_section:
-        print("No CPL section found")
-        return
-        
-    entries = re.findall(r"(MC-\d{6,7})\s+([\d/]+)\s+(.+?)(?=\nMC-|\n[A-Z ]+:|$)", 
-                       cpl_section.group(1), re.DOTALL)
-    
-    for mc, idate, raw in entries:
-        if mc in existing_mcs:
             continue
-        company = re.sub(r'\s+', ' ', raw.strip()[:250])
-        new_rows.append([
-            today.strftime('%Y-%m-%d'),
-            idate,
-            mc,
-            company,
-            raw.strip()[:500],
-            "",  # called_status
-            ""   # notes
-        ])
     
     if new_rows:
         sheet.append_rows(new_rows, value_input_option="RAW")
