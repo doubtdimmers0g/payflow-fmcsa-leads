@@ -47,13 +47,16 @@ def scrape_fmcsa_actives():
         try:
             detail_resp = session.get(link, timeout=30)
             soup = BeautifulSoup(detail_resp.text, 'html.parser')
+            print("Found detail page, full text length:", len(str(soup)))
             
             # GRANT DECISION NOTICES (your original ask)
             grant_section = soup.find('a', id='grant') or soup.find(string=re.compile('GRANT DECISION NOTICES', re.I))
+            print("Grant section found, entries:", len(entries))
             if grant_section:
                 grant_text = grant_section.find_parent('div') or grant_section.find_parent('table') or str(soup)
                 entries = re.findall(r"(MC-\d{6,7})\s+([\d/]+)\s+(.+?)(?=\nMC-|\n[A-Z ]+:|$)", grant_text, re.DOTALL | re.IGNORECASE)
                 for mc, idate, raw in entries:
+                    print("Found MC:", mc)
                     if mc in existing_mcs:
                         continue
                     company = re.sub(r'\s+', ' ', raw.strip()[:250])
