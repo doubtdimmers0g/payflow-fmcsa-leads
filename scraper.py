@@ -2,15 +2,29 @@ import requests
 import pdfplumber
 import re
 import pandas as pd
-from datetime import date, timedelta
 import os
+import json
+from datetime import date, timedelta
+from google.oauth2.service_account import Credentials
+import gspread
 
 def scrape_fmcsa_actives():
-    leads_file = 'active_leads.csv'
-    today = date.today()
-    new_leads = []
+    SHEET_ID = os.environ['SHEET_ID']
+    creds_dict = json.loads(os.environ['GOOGLE_CREDENTIALS'])
     
-    for i in range(2):  # yesterday + today (covers weekends)
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    gc = gspread.authorize(creds)
+    sheet = gc.open_by_key(SHEET_ID).worksheet("Sheet1")  # or rename tab to "Leads"
+    
+    # Load existing MCs for dedup
+    existing_data = sheet.get_all_records()
+    existing_mcs = {row['mc_number'] for row in existing_data if 'mc_number' in row}
+    
+    today = date.today()
+    new_rows = []
+    
+    for i in range(2):  # yesterday + today
         d = today - timedelta(days=i)
         url = f"https://li.fmcsa.dot.gov/lihtml/rptspdf/LI_REGISTER{d.strftime('%Y%m%d')}.PDF"
         
@@ -21,7 +35,7 @@ def scrape_fmcsa_actives():
         with pdfplumber.open(resp.content) as pdf:
             full_text = "".join(page.extract_text() or "" for page in pdf.pages)
         
-        # ACTIVE ones only - Certificate, Permit, License section
+        # ACTIVE ones only
         cpl_section = re.search(r"CERTIFICATE, PERMIT, LICENSE:(.*?)(?=\n[A-Z ]+[: ]|$)", 
                               full_text, re.DOTALL | re.IGNORECASE)
         if not cpl_section:
@@ -31,26 +45,22 @@ def scrape_fmcsa_actives():
                            cpl_section.group(1), re.DOTALL)
         
         for mc, idate, raw in entries:
+            if mc in existing_mcs:
+                continue
             company = re.sub(r'\s+', ' ', raw.strip()[:250])
-            new_leads.append({
-                'scrape_date': today.strftime('%Y-%m-%d'),
-                'grant_issue_date': idate,
-                'mc_number': mc,
-                'company': company,
-                'raw_text': raw.strip()[:500]
-            })
+            new_rows.append([
+                today.strftime('%Y-%m-%d'),
+                idate,
+                mc,
+                company,
+                raw.strip()[:500],
+                "",  # called_status
+                ""   # notes
+            ])
     
-    if new_leads:
-        df_new = pd.DataFrame(new_leads)
-        
-        if os.path.exists(leads_file):
-            df_existing = pd.read_csv(leads_file)
-            df_combined = pd.concat([df_existing, df_new]).drop_duplicates(subset=['mc_number'])
-        else:
-            df_combined = df_new
-            
-        df_combined.to_csv(leads_file, index=False)
-        print(f"Added {len(new_leads)} new active MCs. Total now: {len(df_combined)}")
+    if new_rows:
+        sheet.append_rows(new_rows, value_input_option="RAW")
+        print(f"Added {len(new_rows)} new active MCs to Google Sheet.")
     else:
         print("No new actives today.")
 
