@@ -1,16 +1,13 @@
 import requests
-import pdfplumber
 import re
-import pandas as pd
 import os
 import json
 from datetime import date, timedelta
 from google.oauth2.service_account import Credentials
 import gspread
-
+from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from bs4 import BeautifulSoup
 
 def scrape_fmcsa_actives():
     SHEET_ID = os.environ['SHEET_ID']
@@ -27,38 +24,35 @@ def scrape_fmcsa_actives():
     today = date.today()
     new_rows = []
     
-    # Get list of available PDFs from selection page
-    selection_url = "https://li-public.fmcsa.dot.gov/LIVIEW/PKG_REGISTER.prc_reg_list"
     session = requests.Session()
     retry = Retry(total=5, backoff_factor=1)
     adapter = HTTPAdapter(max_retries=retry)
     session.mount('http://', adapter)
     session.mount('https://', adapter)
+    
+    # Get selection page to find recent dates
+    selection_url = "https://li-public.fmcsa.dot.gov/LIVIEW/PKG_REGISTER.prc_reg_list"
     resp = session.get(selection_url, timeout=30)
     soup = BeautifulSoup(resp.text, 'html.parser')
     
-    pdf_links = []
+    detail_links = []
     for a in soup.find_all('a', href=True):
-        if 'LI_REGISTER' in a['href'] and '.PDF' in a['href']:
-            pdf_links.append(a['href'])
+        if 'prc_reg_detail' in a['href']:
+            detail_links.append(a['href'])
     
-    # Download the latest 7 PDFs
-    for link in pdf_links[:7]:
+    # Scrape the latest 7 detail pages
+    for link in detail_links[:7]:
         if not link.startswith('http'):
-            link = 'https://li.fmcsa.dot.gov' + link
+            link = 'https://li-public.fmcsa.dot.gov/LIVIEW/' + link
         try:
-            pdf_resp = session.get(link, timeout=30)
-            if pdf_resp.status_code != 200:
-                continue
-            with pdfplumber.open(pdf_resp.content) as pdf:
-                full_text = "".join(page.extract_text() or "" for page in pdf.pages)
+            detail_resp = session.get(link, timeout=30)
+            soup = BeautifulSoup(detail_resp.text, 'html.parser')
             
-            # ACTIVE ones only
-            cpl_section = re.search(r"CERTIFICATE, PERMIT, LICENSE:(.*?)(?=\n[A-Z ]+[: ]|$)", 
-                                  full_text, re.DOTALL | re.IGNORECASE)
-            if cpl_section:
-                entries = re.findall(r"(MC-\d{6,7})\s+([\d/]+)\s+(.+?)(?=\nMC-|\n[A-Z ]+:|$)", 
-                                   cpl_section.group(1), re.DOTALL)
+            # GRANT DECISION NOTICES (your original ask)
+            grant_section = soup.find('a', id='grant') or soup.find(string=re.compile('GRANT DECISION NOTICES', re.I))
+            if grant_section:
+                grant_text = grant_section.find_parent('div') or grant_section.find_parent('table') or str(soup)
+                entries = re.findall(r"(MC-\d{6,7})\s+([\d/]+)\s+(.+?)(?=\nMC-|\n[A-Z ]+:|$)", grant_text, re.DOTALL | re.IGNORECASE)
                 for mc, idate, raw in entries:
                     if mc in existing_mcs:
                         continue
@@ -77,9 +71,9 @@ def scrape_fmcsa_actives():
     
     if new_rows:
         sheet.append_rows(new_rows, value_input_option="RAW")
-        print(f"Added {len(new_rows)} new active MCs to Google Sheet.")
+        print(f"Added {len(new_rows)} new grant MCs to Google Sheet.")
     else:
-        print("No new actives today.")
+        print("No new grant decisions today.")
 
 if __name__ == "__main__":
     scrape_fmcsa_actives()
