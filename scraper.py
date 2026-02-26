@@ -58,7 +58,7 @@ def scrape_fmcsa_actives():
                     seen_mcs_this_run = set()
                     while idx < len(lines):
                         if re.match(r'MC-\d{5,8}', lines[idx]):
-                            mc = lines[idx].strip()
+                            mc = re.search(r’(MC-\d{5,8})’, lines[idx]).group(1)
                             if mc in existing_mcs or mc in seen_mcs_this_run:
                                 idx += 1
                                 continue
