@@ -35,8 +35,8 @@ def scrape_fmcsa_actives():
     session.mount('https://', adapter)
     print("Session created")
     
-    for i in range(1):  # change to 30 after test
-        d = today - timedelta(days=i)
+    dates_to_try = [today, today - timedelta(days=1)]
+    for d in dates_to_try:
         url = f"https://li-public.fmcsa.dot.gov/lihtml/rptspdf/LI_REGISTER{d.strftime('%Y%m%d')}.PDF"
         print("Trying URL:", url)
         
@@ -45,57 +45,58 @@ def scrape_fmcsa_actives():
             if resp.status_code == 200:
                 print("Downloaded PDF for", d)
                 with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
-                    full_text = "".join(page.extract_text() or "" for page in pdf.pages)
-                
-                print(f"DEBUG {d}: Extracting grant tables...")
-                found_count = 0
-                seen_mcs_this_run = set()
-                grant_started = False
-                
-                for page in pdf.pages:
-                    text = page.extract_text() or ''
-                    if "GRANT DECISION NOTICES" in text.upper():
-                        grant_started = True
-                    if not grant_started:
-                        continue
+                    print(f"DEBUG {d}: Extracting grant tables...")
+                    found_count = 0
+                    seen_mcs_this_run = set()
+                    grant_started = False
                     
-                    tables = page.extract_tables()
-                    for table in tables:
-                        if not table or len(table) < 2:
+                    for page in pdf.pages:
+                        text = page.extract_text() or ''
+                        if "GRANT DECISION NOTICES" in text.upper():
+                            grant_started = True
+                        if not grant_started:
                             continue
-                        header = [str(cell or '').strip().upper() for cell in table[0]]
-                        if not any('NUMBER' in h for h in header) or not any('FILED' in h for h in header):
-                            continue  # Only grant tables
                         
-                        for row in table[1:]:  # skip header
-                            if not row or len(row) < 1:
+                        tables = page.extract_tables()
+                        for table in tables:
+                            if not table or len(table) < 2:
                                 continue
-                            number = str(row[0] or '').strip()
-                            if not number.startswith('MC-'):
-                                continue
-                            mc = number
-                            if mc in existing_mcs or mc in seen_mcs_this_run:
-                                continue
-                            seen_mcs_this_run.add(mc)
+                            header = [str(cell or '').strip().upper() for cell in table[0]]
+                            if not any('NUMBER' in h for h in header) or not any('FILED' in h for h in header):
+                                continue  # Only grant tables
                             
-                            filed = str(row[1] or '').strip()
-                            applicant = str(row[2] or '').replace('\n', ' ').strip() if len(row) > 2 else ''
-                            representative = str(row[3] or '').replace('\n', ' ').strip() if len(row) > 3 else ''
-                            
-                            new_rows.append([
-                                today.strftime('%Y-%m-%d'),
-                                filed,
-                                mc,
-                                applicant[:250],
-                                representative,
-                                "",
-                                ""
-                            ])
-                            print(f"Found new MC: {mc} | Applicant: {applicant[:100]}... | Rep: {representative[:100]}...")
-                            found_count += 1
-                
-                print(f"DEBUG {d}: {found_count} new MCs added from grant tables")
-
+                            for row in table[1:]:  # skip header
+                                if not row or len(row) < 1:
+                                    continue
+                                number = str(row[0] or '').strip()
+                                if not number.startswith('MC-'):
+                                    continue
+                                mc = number
+                                if mc in existing_mcs or mc in seen_mcs_this_run:
+                                    continue
+                                seen_mcs_this_run.add(mc)
+                                
+                                filed = str(row[1] or '').strip()
+                                applicant = str(row[2] or '').replace('\n', ' ').strip() if len(row) > 2 else ''
+                                representative = str(row[3] or '').replace('\n', ' ').strip() if len(row) > 3 else ''
+                                
+                                new_rows.append([
+                                    today.strftime('%Y-%m-%d'),
+                                    filed,
+                                    mc,
+                                    applicant[:250],
+                                    representative,
+                                    "",
+                                    ""
+                                ])
+                                print(f"Found new MC: {mc} | Applicant: {applicant[:100]}... | Rep: {representative[:100]}...")
+                                found_count += 1
+                    
+                    print(f"DEBUG {d}: {found_count} new MCs added from grant tables")
+                break  # success — stop trying earlier dates
+            else:
+                print(f"PDF for {d} not available yet")
+                continue
         except Exception as e:
             print("Error for", d, ":", str(e))
             continue
