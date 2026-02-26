@@ -45,56 +45,50 @@ def scrape_fmcsa_actives():
             if resp.status_code == 200:
                 print("Downloaded PDF for", d)
                 with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
-                    print(f"DEBUG {d}: Extracting grant tables...")
+                    full_text = "".join(page.extract_text() or "" for page in pdf.pages)
+                
+                # LINE-BY-LINE ON GRANT SECTION: Skips boilerplate, pulls MC/applicant/rep from blocks
+                print(f"DEBUG {d}: Scanning grant section line-by-line...")
+                grant_match = re.search(r"GRANT DECISION NOTICES", full_text, re.IGNORECASE)
+                if grant_match:
+                    grant_text = full_text[grant_match.end():]
+                    lines = [line.strip() for line in grant_text.split('\n') if line.strip()]
+                    idx = 0
                     found_count = 0
                     seen_mcs_this_run = set()
-                    grant_started = False
-                    
-                    for page in pdf.pages:
-                        text = page.extract_text() or ''
-                        if "GRANT DECISION NOTICES" in text.upper():
-                            grant_started = True
-                        if not grant_started:
-                            continue
-                        
-                        tables = page.extract_tables()
-                        print(f"DEBUG page {page.page_number}: {len(tables)} tables found")
-                        for table in tables:
-                            if not table or len(table) < 2:
+                    while idx < len(lines):
+                        if re.match(r'MC-\d{5,8}', lines[idx]):
+                            mc = lines[idx].strip()
+                            if mc in existing_mcs or mc in seen_mcs_this_run:
+                                idx += 1
                                 continue
-                            header = [str(cell or '').strip().upper() for cell in table[0]]
-                            print(f"DEBUG table headers: {header}")  # add this for now
-                            if not any('NUMBER' in h for h in header):
-                                continue  # Only grant tables
+                            seen_mcs_this_run.add(mc)
                             
-                            for row in table[1:]:  # skip header
-                                if not row or len(row) < 1:
-                                    continue
-                                number = str(row[0] or '').strip()
-                                if not number.startswith('MC-'):
-                                    continue
-                                mc = number
-                                if mc in existing_mcs or mc in seen_mcs_this_run:
-                                    continue
-                                seen_mcs_this_run.add(mc)
-                                
-                                filed = str(row[1] or '').strip()
-                                applicant = str(row[2] or '').replace('\n', ' ').strip() if len(row) > 2 else ''
-                                representative = str(row[3] or '').replace('\n', ' ').strip() if len(row) > 3 else ''
-                                
-                                new_rows.append([
-                                    today.strftime('%Y-%m-%d'),
-                                    filed,
-                                    mc,
-                                    applicant[:250],
-                                    representative,
-                                    "",
-                                    ""
-                                ])
-                                print(f"Found new MC: {mc} | Applicant: {applicant[:100]}... | Rep: {representative[:100]}...")
-                                found_count += 1
-                    
-                    print(f"DEBUG {d}: {found_count} new MCs added from grant tables")
+                            # Grab next few lines for applicant and rep
+                            applicant = lines[idx+1] if idx+1 < len(lines) else ''
+                            rep = lines[idx+3] if idx+3 < len(lines) else ''
+                            
+                            # Date from nearby line
+                            date_match = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', ' '.join(lines[idx:idx+10]))
+                            idate = date_match.group(1) if date_match else d.strftime('%m/%d/%Y')
+                            
+                            new_rows.append([
+                                today.strftime('%Y-%m-%d'),
+                                idate,
+                                mc,
+                                applicant[:250],
+                                rep,
+                                "",
+                                ""
+                            ])
+                            print(f"Found new MC: {mc} | Applicant: {applicant[:100]}... | Rep: {rep[:100]}...")
+                            found_count += 1
+                            idx += 4  # skip ahead
+                        else:
+                            idx += 1
+                    print(f"DEBUG {d}: {found_count} new MCs added from grant lines")
+                else:
+                    print(f"DEBUG {d}: No GRANT section found")
                 break  # success — stop trying earlier dates
             else:
                 print(f"PDF for {d} not available yet")
