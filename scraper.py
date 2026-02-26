@@ -47,7 +47,7 @@ def scrape_fmcsa_actives():
                 with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
                     full_text = "".join(page.extract_text() or "" for page in pdf.pages)
                 
-                # LINE-BY-LINE ON GRANT SECTION: Skips boilerplate, pulls MC/applicant/rep from blocks
+                # LINE-BY-LINE ON GRANT SECTION: Skips boilerplate, pulls MC/applicant/rep/tel from blocks
                 print(f"DEBUG {d}: Scanning grant section line-by-line...")
                 grant_match = re.search(r"GRANT DECISION NOTICES", full_text, re.IGNORECASE)
                 if grant_match:
@@ -64,9 +64,17 @@ def scrape_fmcsa_actives():
                                 continue
                             seen_mcs_this_run.add(mc)
                             
-                            # Grab next few lines for applicant and rep
+                            # Applicant: next line after MC
                             applicant = lines[idx+1] if idx+1 < len(lines) else ''
-                            rep = lines[idx+3] if idx+3 < len(lines) else ''
+                            
+                            # Rep and tel: look for 'Tel:' line, name is previous line
+                            rep = ''
+                            tel = ''
+                            for k in range(idx+1, min(idx+10, len(lines))):
+                                if 'Tel:' in lines[k]:
+                                    tel = lines[k].strip()
+                                    rep = lines[k-1] if k-1 > idx else ''
+                                    break
                             
                             # Date from nearby line
                             date_match = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', ' '.join(lines[idx:idx+10]))
@@ -78,12 +86,12 @@ def scrape_fmcsa_actives():
                                 mc,
                                 applicant[:250],
                                 rep,
-                                "",
+                                tel,
                                 ""
                             ])
-                            print(f"Found new MC: {mc} | Applicant: {applicant[:100]}... | Rep: {rep[:100]}...")
+                            print(f"Found new MC: {mc} | Applicant: {applicant[:100]}... | Rep: {rep} | Tel: {tel}")
                             found_count += 1
-                            idx += 4  # skip ahead
+                            idx += 5  # skip ahead
                         else:
                             idx += 1
                     print(f"DEBUG {d}: {found_count} new MCs added from grant lines")
