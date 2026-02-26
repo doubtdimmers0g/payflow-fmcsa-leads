@@ -47,52 +47,54 @@ def scrape_fmcsa_actives():
                 with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
                     full_text = "".join(page.extract_text() or "" for page in pdf.pages)
                 
-                # RESTRICTED TO GRANT SECTION: Skip boilerplate/other sections, focus on detailed grants after header
-                print(f"DEBUG {d}: Scanning GRANT section for MC entries...")
-                grant_match = re.search(r"GRANT DECISION NOTICES", full_text, re.IGNORECASE)
-                if grant_match:
-                    # Start from after header (boilerplate is first, then the list)
-                    grant_text = full_text[grant_match.end():]
+                print(f"DEBUG {d}: Extracting grant tables...")
+                found_count = 0
+                seen_mcs_this_run = set()
+                grant_started = False
+                
+                for page in pdf.pages:
+                    text = page.extract_text() or ''
+                    if "GRANT DECISION NOTICES" in text.upper():
+                        grant_started = True
+                    if not grant_started:
+                        continue
                     
-                    mc_matches = re.finditer(r'(MC-\d{5,8}[A-Z]?)', grant_text, re.IGNORECASE)
-                    
-                    found_count = 0
-                    seen_mcs_this_run = set()
-                    for match in mc_matches:
-                        mc = match.group(1).upper()
-                        if mc in existing_mcs or mc in seen_mcs_this_run:
+                    tables = page.extract_tables()
+                    for table in tables:
+                        if not table or len(table) < 2:
                             continue
-                        seen_mcs_this_run.add(mc)
+                        header = [str(cell or '').strip().upper() for cell in table[0]]
+                        if not any('NUMBER' in h for h in header) or not any('FILED' in h for h in header):
+                            continue  # Only grant tables
                         
-                        # Context from grant_text only
-                        start = max(0, match.start() - 150)
-                        end = min(len(grant_text), match.end() + 400)
-                        context = grant_text[start:end]
-                        
-                        # Company extraction
-                        company_match = re.search(r'\b' + re.escape(mc) + r'\b\s*[:\-]?\s*([A-Z][A-Za-z0-9&\'\.\-\s/]{8,120}?)', context)
-                        company = company_match.group(1).strip() if company_match else "Unknown Company"
-                        company = re.sub(r'\s+', ' ', company)[:250]
-                        
-                        # Date
-                        date_match = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', context)
-                        idate = date_match.group(1) if date_match else d.strftime('%m/%d/%Y')
-                        
-                        new_rows.append([
-                            today.strftime('%Y-%m-%d'),
-                            idate,
-                            mc,
-                            company,
-                            re.sub(r'\s+', ' ', context.strip())[:600],
-                            "",
-                            ""
-                        ])
-                        print(f"Found new MC: {mc} | {company} | Date: {idate}")
-                        found_count += 1
-                    
-                    print(f"DEBUG {d}: {found_count} new MCs added from GRANT section")             
-                else:
-                    print(f"DEBUG {d}: No GRANT section found")
+                        for row in table[1:]:  # skip header
+                            if not row or len(row) < 1:
+                                continue
+                            number = str(row[0] or '').strip()
+                            if not number.startswith('MC-'):
+                                continue
+                            mc = number
+                            if mc in existing_mcs or mc in seen_mcs_this_run:
+                                continue
+                            seen_mcs_this_run.add(mc)
+                            
+                            filed = str(row[1] or '').strip()
+                            applicant = str(row[2] or '').replace('\n', ' ').strip() if len(row) > 2 else ''
+                            representative = str(row[3] or '').replace('\n', ' ').strip() if len(row) > 3 else ''
+                            
+                            new_rows.append([
+                                today.strftime('%Y-%m-%d'),
+                                filed,
+                                mc,
+                                applicant[:250],
+                                representative,
+                                "",
+                                ""
+                            ])
+                            print(f"Found new MC: {mc} | Applicant: {applicant[:100]}... | Rep: {representative[:100]}...")
+                            found_count += 1
+                
+                print(f"DEBUG {d}: {found_count} new MCs added from grant tables")
 
         except Exception as e:
             print("Error for", d, ":", str(e))
