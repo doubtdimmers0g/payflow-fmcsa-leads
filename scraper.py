@@ -49,54 +49,50 @@ def scrape_fmcsa_actives():
                 
                 # LINE-BY-LINE ON GRANT SECTION: Skips boilerplate, pulls MC/applicant/rep/tel from blocks
                 print(f"DEBUG {d}: Scanning grant section line-by-line...")
-                grant_match = re.search(r"GRANT DECISION NOTICES", full_text, re.IGNORECASE)
-                if grant_match:
-                    grant_text = full_text[grant_match.end():]
-                    lines = [line.strip() for line in grant_text.split('\n') if line.strip()]
-                    idx = 0
-                    found_count = 0
-                    seen_mcs_this_run = set()
-                    while idx < len(lines):
-                        if re.match(r'MC-\d{5,8}', lines[idx]):
-                            mc = lines[idx].strip()
-                            if mc in existing_mcs or mc in seen_mcs_this_run:
-                                idx += 1
-                                continue
-                            seen_mcs_this_run.add(mc)
-                            
-                            # Applicant: next line after MC
-                            applicant = lines[idx+1] if idx+1 < len(lines) else ''
-                            
-                            # Rep and tel: look for 'Tel:' line, name is previous line
-                            rep = ''
-                            tel = ''
-                            for k in range(idx+1, min(idx+10, len(lines))):
-                                if 'Tel:' in lines[k]:
-                                    tel = lines[k].strip()
-                                    rep = lines[k-1] if k-1 > idx else ''
-                                    break
-                            
-                            # Date from nearby line
-                            date_match = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', ' '.join(lines[idx:idx+10]))
-                            idate = date_match.group(1) if date_match else d.strftime('%m/%d/%Y')
-                            
-                            new_rows.append([
-                                today.strftime('%Y-%m-%d'),
-                                idate,
-                                mc,
-                                applicant[:250],
-                                rep,
-                                tel,
-                                ""
-                            ])
-                            print(f"Found new MC: {mc} | Applicant: {applicant[:100]}... | Rep: {rep} | Tel: {tel}")
-                            found_count += 1
-                            idx += 5  # skip ahead
-                        else:
+                grant_text = full_text[grant_match.end():]
+                lines = [line.strip() for line in grant_text.split('\n') if line.strip()]
+                idx = 0
+                found_count = 0
+                seen_mcs_this_run = set()
+                while idx < len(lines):
+                    if re.match(r'MC-\d{5,8}', lines[idx]):
+                        mc = lines[idx].strip()
+                        if mc in existing_mcs or mc in seen_mcs_this_run:
                             idx += 1
-                    print(f"DEBUG {d}: {found_count} new MCs added from grant lines")
-                else:
-                    print(f"DEBUG {d}: No GRANT section found")
+                            continue
+                        seen_mcs_this_run.add(mc)
+                            
+                        # Applicant name: next line after MC
+                        applicant = lines[idx+1] if idx+1 < len(lines) else ''
+                            
+                        # Rep name and tel: look for 'Tel:' line
+                        rep = ''
+                        tel = ''
+                        for k in range(idx+1, min(idx+10, len(lines))):
+                            if 'Tel:' in lines[k]:
+                                tel = lines[k].strip()
+                                rep = lines[k-1] if k-1 > idx else ''
+                                break
+                            
+                        # Date from nearby line
+                        date_match = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', ' '.join(lines[idx:idx+10]))
+                        idate = date_match.group(1) if date_match else d.strftime('%m/%d/%Y')
+                            
+                        new_rows.append([
+                            today.strftime('%Y-%m-%d'),
+                            idate,
+                            mc,
+                            applicant[:250],
+                            rep,
+                            tel,
+                            ""
+                        ])
+                        print(f"Found new MC: {mc} | Applicant: {applicant} | Rep: {rep} | Tel: {tel}")
+                        found_count += 1
+                        idx += 5  # skip ahead
+                    else:
+                        idx += 1
+                print(f"DEBUG {d}: {found_count} new MCs added from grant lines")
                 break  # success — stop trying earlier dates
             else:
                 print(f"PDF for {d} not available yet")
