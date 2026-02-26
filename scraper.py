@@ -58,6 +58,7 @@ def scrape_fmcsa_actives():
                             continue
                         
                         tables = page.extract_tables()
+                        print(f"DEBUG page {page.page_number}: {len(tables)} tables found")
                         for table in tables:
                             if not table or len(table) < 2:
                                 continue
