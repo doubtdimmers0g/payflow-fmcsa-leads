@@ -62,7 +62,8 @@ def scrape_fmcsa_actives():
                             if not table or len(table) < 2:
                                 continue
                             header = [str(cell or '').strip().upper() for cell in table[0]]
-                            if not any('NUMBER' in h for h in header) or not any('FILED' in h for h in header):
+                            print(f"DEBUG table headers: {header}")  # add this for now
+                            if not any('NUMBER' in h for h in header):
                                 continue  # Only grant tables
                             
                             for row in table[1:]:  # skip header
