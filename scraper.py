@@ -8,7 +8,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 def sample_fmcsa_fitness_leads_today_only():
-    print("Scraper: ONLY tries TODAY's date repeatedly until live")
+    print("Scraper: ONLY tries TODAY's date repeatedly until live | MC-180xxxx+ filter")
 
     today = date.today()
     date_str = today.strftime('%Y%m%d')
@@ -46,9 +46,9 @@ def sample_fmcsa_fitness_leads_today_only():
 
             print("  PDF loaded successfully! Extracting...")
 
-            # Regex for MC-17xxxx+, date, name fragment, Tel (column bleed handling)
+            # Regex updated to MC-180xxxx+ only
             pattern = re.compile(
-                r'(MC-(?:1[7-9]|2[0-9])\d{5,6}(?:-[A-Z])?)\s+'
+                r'(MC-180\d{4,5}(?:-[A-Z])?)\s+'
                 r'(\d{2}/\d{2}/\d{4})\s+'
                 r'(.+?)\s+'
                 r'(?:[A-Z\s,]+[A-Z]{2}\s*\d{5}(?:-\d{4})?)?\s*'
@@ -60,7 +60,7 @@ def sample_fmcsa_fitness_leads_today_only():
             print(f"  Raw matches found: {len(matches)}")
 
             found_entries = []
-            seen_mcs = set()  # basic dedupe
+            seen_mcs = set()  # dedupe
 
             for mc, dec_date, raw_name, tel_raw in matches:
                 if mc in seen_mcs:
@@ -101,7 +101,7 @@ def sample_fmcsa_fitness_leads_today_only():
                     break
 
             if found_entries:
-                print("\n=== SAMPLE 10 LEADS (with Tel) ===")
+                print("\n=== SAMPLE 10 LEADS (MC-180xxxx+ with Tel) ===")
                 for i, e in enumerate(found_entries[:10], 1):
                     print(f"{i}. MC: {e['mc']}")
                     print(f"   Name: {e['name']}")
@@ -109,16 +109,16 @@ def sample_fmcsa_fitness_leads_today_only():
                     print(f"   Tel: {e['tel']}")
                     print(f"   Date: {e['date']}")
                     print("-" * 60)
-                return  # Success - stop
+                return  # Success
             else:
-                print("  No valid entries found (parsing or no new grants today).")
+                print("  No valid MC-180xxxx+ entries found (parsing or no new grants today).")
 
         except Exception as e:
             print(f"  Error: {str(e)}. Retrying...")
             time.sleep(60)
             continue
 
-    print(f"Failed after {max_retries} attempts. Try again later (PDF likely delayed).")
+    print(f"Failed after {max_retries} attempts. PDF likely delayed. Try again in 30-60 min.")
 
 if __name__ == "__main__":
     sample_fmcsa_fitness_leads_today_only()
