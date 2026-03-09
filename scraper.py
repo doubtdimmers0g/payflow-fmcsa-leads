@@ -7,7 +7,7 @@ def main():
     print("Only printing to console for validation")
 
     today = date.today()
-    today_str = today.strftime('%m/%d/%Y')  # Full year: 03/09/2026
+    today_str = today.strftime('%m/%d/%Y')  # Full year: e.g., 03/09/2026
     print(f"Searching for row with date: '{today_str}'")
 
     with sync_playwright() as p:
@@ -21,7 +21,7 @@ def main():
 
             print(f"Page title: {page.title()}")
 
-            # Debug: print first few rows to see format
+            # Debug first few rows
             rows_preview = page.locator("tr").all_inner_texts()[:5]
             print("First few rows preview:")
             for r in rows_preview:
@@ -33,7 +33,7 @@ def main():
             print(f"Row count found: {row_count}")
 
             if row_count == 0:
-                print("Today's row still not found. Possible format mismatch or page not updated.")
+                print("Today's row not found. Possible format mismatch or page not updated.")
                 return
 
             detail_button = row.locator("input[value='HTML Detail']")
@@ -54,14 +54,14 @@ def main():
             print("HTML Detail page loaded")
             print(f"Detail page title: {page.title()}")
 
-            # Preview content
-            content_preview = page.inner_text("body")[:1500]
+            content = page.inner_text("body")
+            print(f"Content length: {len(content)} chars")
+
+            # Preview first chunk
+            content_preview = content[:1500]
             print("HTML Detail content preview (first 1500 chars):")
             print(content_preview)
             print("...")
-
-            # Debug content length
-            print(f"Content length: {len(content)} chars")
 
             lines = [line.strip() for line in content.split('\n') if line.strip()]
 
@@ -71,13 +71,13 @@ def main():
             ]
 
             entries = []
-            in_block = False  # Initialize here
+            in_block = False  # Fixed: initialize here
             current_authority = None
             i = 0
             while i < len(lines):
                 line = lines[i]
 
-                # Start of target block
+                # Start block
                 if any(p in line for p in target_phrases):
                     in_block = True
                     current_authority = line
@@ -89,7 +89,7 @@ def main():
                     i += 1
                     continue
 
-                # Look for MC-180xxxx
+                # MC-180xxxx
                 mc_match = re.search(r'(MC-180\d{4,5}(?:-[A-Z])?)', line, re.I)
                 if mc_match:
                     mc = mc_match.group(1).upper()
@@ -98,26 +98,27 @@ def main():
                     tel = ""
                     location = "N/A"
 
-                    # Scan ahead for name, tel, location
+                    # Scan ahead
                     j = 1
                     while j < 15 and i + j < len(lines):
                         next_line = lines[i + j]
 
-                        # Tel detection (more flexible)
-                        tel_match = re.search(r'tel\s*:\s*(\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4})', next_line, re.I)
+                        # Flexible Tel match
+                        tel_match = re.search(r'tel\s*[:.]?\s*(\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4})', next_line, re.I)
                         if tel_match:
                             tel_clean = re.sub(r'[\s().-]', '', tel_match.group(1))
                             if len(tel_clean) == 10:
                                 tel = f"({tel_clean[:3]}) {tel_clean[3:6]}-{tel_clean[6:]}"
 
-                        # Name (substantial line, not Tel or location)
+                        # Name (substantial, not Tel or ZIP)
                         if len(next_line) > 12 and not tel_match and not re.search(r'\d{5}', next_line):
                             if not name:
                                 name = next_line.strip()
 
-                        # Location (city/state/ZIP pattern)
-                        if re.search(r'[A-Za-z ]+,\s*[A-Z]{2}\s*\d{5}', next_line):
-                            location = next_line.strip()
+                        # Location
+                        loc_match = re.search(r'([A-Za-z ]+,\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)', next_line)
+                        if loc_match and location == "N/A":
+                            location = loc_match.group(1).strip()
 
                         j += 1
 
@@ -127,8 +128,7 @@ def main():
                             "name": name or "N/A",
                             "location": location,
                             "tel": tel,
-                            "authority": current_authority,
-                            "scrape_date": today.strftime('%Y-%m-%d')
+                            "authority": current_authority
                         }
                         entries.append(entry)
                         print(f"Added: {mc} - {name[:60]}... Tel: {tel} | Location: {location}")
@@ -136,7 +136,7 @@ def main():
                     if len(entries) >= 10:
                         break
 
-                # Reset block if we hit a major section break
+                # Reset on major section
                 if "grant decision notices" in line.lower() or "fitness-only" in line.lower() or "certificate" in line.lower():
                     in_block = False
 
@@ -153,8 +153,8 @@ def main():
                     print(f"   Authority: {e['authority'][:80]}...")
                     print("-" * 60)
             else:
-                print("No matching MCs with Tel found - check if Tel lines are parsed correctly.")
-                
+                print("No matching MCs with Tel found - check content preview or Tel format.")
+
         except Exception as e:
             print(f"Playwright error: {str(e)}")
         finally:
