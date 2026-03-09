@@ -3,12 +3,11 @@ import re
 from datetime import date
 
 def main():
-    print("TEST MODE: Playwright HTML Detail scraper - no sheet writes")
-    print("Only printing to console for validation")
+    print("TEST MODE: FMCSA HTML Detail scraper - extracting only MC, Date, Company Name, Authority")
+    print("No sheet writes - console only for validation")
 
     today = date.today()
-    today_str = today.strftime('%m/%d/%Y')  # Full year: e.g., 03/09/2026
-    print(f"Searching for row with date: '{today_str}'")
+    today_str = today.strftime('%m/%d/%Y')  # e.g., 03/09/2026
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
@@ -19,53 +18,24 @@ def main():
             page.goto("https://li-public.fmcsa.dot.gov/LIVIEW/PKG_REGISTER.prc_reg_list", timeout=60000)
             page.wait_for_load_state("networkidle")
 
-            print(f"Page title: {page.title()}")
-
-            # Debug first few rows
-            rows_preview = page.locator("tr").all_inner_texts()[:5]
-            print("First few rows preview:")
-            for r in rows_preview:
-                print(r[:100] + "..." if len(r) > 100 else r)
-
-            print(f"Looking for row with '{today_str}'...")
             row = page.locator(f"tr:has-text('{today_str}')")
-            row_count = row.count()
-            print(f"Row count found: {row_count}")
-
-            if row_count == 0:
-                print("Today's row not found. Possible format mismatch or page not updated.")
+            if row.count() == 0:
+                print("Today's row not found.")
                 return
 
             detail_button = row.locator("input[value='HTML Detail']")
-            button_count = detail_button.count()
-            print(f"HTML Detail button count in row: {button_count}")
-
-            if button_count == 0:
-                print("Button not found. Inspecting row HTML...")
-                row_html = row.inner_html()
-                print("Row HTML preview:", row_html[:500])
+            if detail_button.count() == 0:
+                print("HTML Detail button not found.")
                 return
 
-            print("Clicking HTML Detail...")
+            print("Submitting HTML Detail...")
             with page.expect_navigation(timeout=60000):
                 detail_button.click()
 
             page.wait_for_load_state("networkidle", timeout=60000)
-            print("HTML Detail page loaded")
-            print(f"Detail page title: {page.title()}")
+            print("HTML Detail loaded")
 
             content = page.inner_text("body")
-            print(f"Content length: {len(content)} chars")
-
-            # Preview first chunk
-            content_preview = content[:1500]
-            print("HTML Detail content preview (first 1500 chars):")
-            print(content_preview)
-            print("...")
-
-# Debug content length
-            print(f"Content length: {len(content)} chars")
-
             lines = [line.strip() for line in content.split('\n') if line.strip()]
 
             target_phrases = [
@@ -74,98 +44,71 @@ def main():
             ]
 
             entries = []
-            in_block = False
-            current_authority = None
             i = 0
             while i < len(lines):
                 line = lines[i]
 
-                if any(p in line for p in target_phrases):
-                    in_block = True
-                    current_authority = line
+                # Detect authority block
+                matched_phrase = next((p for p in target_phrases if p in line), None)
+                if matched_phrase:
+                    current_authority = matched_phrase
                     print(f"Found block: {current_authority[:80]}...")
                     i += 1
                     continue
 
-                if not in_block:
-                    i += 1
-                    continue
-
+                # Look for MC line
                 mc_match = re.search(r'(MC-180\d{4,5}(?:-[A-Z])?)', line, re.I)
                 if mc_match:
                     mc = mc_match.group(1).upper()
-                    print(f"MC found in block: {mc} (line: {line[:100]})")
 
+                    date_str = ""
                     name = ""
-                    tel = ""
-                    location = "N/A"
-                    address_started = False
-
+                    # Scan ahead for date and name
                     j = 1
-                    while j < 25 and i + j < len(lines):
+                    while j < 10 and i + j < len(lines):
                         next_line = lines[i + j]
 
-                        # Phone match - look for "Phone:" specifically
-                        tel_match = re.search(r'phone\s*:\s*(\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4})', next_line, re.I)
-                        if tel_match and not tel:  # take first Phone only
-                            tel_clean = re.sub(r'[\s().-]', '', tel_match.group(1))
-                            if len(tel_clean) == 10:
-                                tel = f"({tel_clean[:3]}) {tel_clean[3:6]}-{tel_clean[6:]}"
-                                print(f"Phone found: {tel} (line: {next_line[:80]})")
+                        # Date (mm/dd/yyyy right after MC)
+                        if not date_str:
+                            date_match = re.search(r'\d{2}/\d{2}/\d{4}', next_line)
+                            if date_match:
+                                date_str = date_match.group(0)
 
                         # Name - first substantial line after MC/date, before address
-                        if len(next_line) > 10 and not tel_match and not re.search(r'^\d', next_line) and not address_started:
+                        if len(next_line) > 10 and not date_match and not re.search(r'^\d{1,5}\s', next_line):
                             if not name:
                                 name = next_line.strip()
-                                print(f"Name candidate: {name[:80]}")
-
-                        # Detect address start (street number or city/state/ZIP)
-                        if re.search(r'^\d{1,5}\s', next_line) or re.search(r'[A-Za-z ]+,\s*[A-Z]{2}\s*\d{5}', next_line):
-                            address_started = True
-                            if location == "N/A" and re.search(r'[A-Za-z ]+,\s*[A-Z]{2}\s*\d{5}', next_line):
-                                location = next_line.strip()
-                                print(f"Location: {location}")
 
                         j += 1
 
-                    # Final name cleanup (remove any leaked address)
-                    name = re.sub(r'\s+\d{1,5}\s+[A-Z].*$', '', name).strip()
-                    name = re.sub(r'\bD/B/A\b.*?(?=\s+[A-Z])', '', name, flags=re.I).strip()
+                    # Skip if no name or date
+                    if not name or not date_str:
+                        i += 1
+                        continue
 
-                    if tel and name != "N/A":
-                        entry = {
-                            "mc": mc,
-                            "name": name,
-                            "location": location,
-                            "tel": tel,
-                            "authority": current_authority
-                        }
-                        entries.append(entry)
-                        print(f"ADDED ENTRY: {mc} - {name}... Tel: {tel} | Loc: {location}")
-                    else:
-                        print(f"MC {mc} skipped - missing Tel or valid name")
+                    entry = {
+                        "mc": mc,
+                        "date": date_str,
+                        "name": name,
+                        "authority": current_authority
+                    }
+                    entries.append(entry)
+                    print(f"EXTRACTED: {mc} | Date: {date_str} | Name: {name} | Authority: {current_authority[:80]}...")
 
                     if len(entries) >= 10:
                         break
-
-                # Reset block
-                if "grant decision notices" in line.lower() or "fitness-only" in line.lower() or "certificate" in line.lower():
-                    in_block = False
 
                 i += 1
 
             if entries:
                 print(f"\nFound {len(entries)} leads")
                 print("\nSAMPLE LEADS (TEST MODE):")
-                for i, e in enumerate(entries[:10], 1):
-                    print(f"{i}. MC: {e['mc']}")
-                    print(f"   Name: {e['name']}")
-                    print(f"   Location: {e['location']}")
-                    print(f"   Tel: {e['tel']}")
-                    print(f"   Authority: {e['authority'][:80]}...")
-                    print("-" * 60)
+                print("MC Number | Date | Company Name | Authority Type")
+                print("-" * 80)
+                for e in entries[:10]:
+                    print(f"{e['mc']} | {e['date']} | {e['name']} | {e['authority']}")
             else:
-                print("No leads added - check if Phone lines are being hit and name is valid.")
+                print("No entries extracted - check if MC lines are being hit in blocks.")
 
         except Exception as e:
             print(f"Playwright error: {str(e)}")
