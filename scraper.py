@@ -80,7 +80,6 @@ def main():
             while i < len(lines):
                 line = lines[i]
 
-                # Start block
                 if any(p in line for p in target_phrases):
                     in_block = True
                     current_authority = line
@@ -92,7 +91,6 @@ def main():
                     i += 1
                     continue
 
-                # Broader MC match (MC-180xxxx or MC-180xxxx-C)
                 mc_match = re.search(r'(MC-180\d{4,5}(?:-[A-Z])?)', line, re.I)
                 if mc_match:
                     mc = mc_match.group(1).upper()
@@ -102,32 +100,33 @@ def main():
                     tel = ""
                     location = "N/A"
 
-                    # Scan ahead more aggressively
                     j = 1
-                    while j < 20 and i + j < len(lines):
+                    while j < 25 and i + j < len(lines):
                         next_line = lines[i + j]
 
-                        # Very flexible Tel match
-                        tel_match = re.search(r'tel\s*[:.]?\s*(\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4})', next_line, re.I)
+                        # Phone match (updated for "Phone:")
+                        tel_match = re.search(r'phone\s*[:.]?\s*(\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4})', next_line, re.I)
                         if tel_match:
                             tel_clean = re.sub(r'[\s().-]', '', tel_match.group(1))
                             if len(tel_clean) == 10:
                                 tel = f"({tel_clean[:3]}) {tel_clean[3:6]}-{tel_clean[6:]}"
-                                print(f"Tel found: {tel} (line: {next_line[:80]})")
+                                print(f"Phone found: {tel} (line: {next_line[:80]})")
 
-                        # Name (long line, not pure ZIP or Tel)
-                        if len(next_line) > 15 and not re.search(r'^\d{5}', next_line) and not tel_match:
+                        if len(next_line) > 12 and not tel_match and not re.search(r'^\d{5}', next_line):
                             if not name:
                                 name = next_line.strip()
                                 print(f"Name candidate: {name[:80]}")
 
-                        # Location (city/state/ZIP)
                         loc_match = re.search(r'([A-Za-z ]+,\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)', next_line)
                         if loc_match and location == "N/A":
                             location = loc_match.group(1).strip()
                             print(f"Location candidate: {location}")
 
                         j += 1
+
+                    # Final name cleanup
+                    name = re.sub(r'\s+\d{1,5}\s+[A-Z].*$', '', name).strip()
+                    name = re.sub(r'\bD/B/A\b.*?(?=\s+[A-Z])', '', name, flags=re.I).strip()
 
                     if tel:
                         entry = {
@@ -138,14 +137,13 @@ def main():
                             "authority": current_authority
                         }
                         entries.append(entry)
-                        print(f"Added entry: {mc} - {name[:60]}... Tel: {tel} | Loc: {location}")
+                        print(f"ADDED ENTRY: {mc} - {name[:60]}... Tel: {tel} | Loc: {location}")
                     else:
-                        print(f"MC {mc} found but no Tel in scan range")
+                        print(f"MC {mc} found but no Phone in 25-line scan")
 
                     if len(entries) >= 10:
                         break
 
-                # Reset block on major headers
                 if "grant decision notices" in line.lower() or "fitness-only" in line.lower() or "certificate" in line.lower():
                     in_block = False
 
@@ -162,7 +160,7 @@ def main():
                     print(f"   Authority: {e['authority'][:80]}...")
                     print("-" * 60)
             else:
-                print("No leads extracted. Check Tel format in content preview or scan range.")
+                print("No leads - Phone not detected. Check preview for 'Phone:' format.")
 
         except Exception as e:
             print(f"Playwright error: {str(e)}")
