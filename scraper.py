@@ -69,8 +69,8 @@ def sample_fmcsa_fitness_leads_today_only():
 
                 # Clean name
                 name = re.sub(r'\s+', ' ', raw_name.strip())
-                name = re.sub(r'^\d+\s+[A-Z].*?(?:ST|AVE|RD|DR|LN|BLVD|WAY|CT|PL|DRIVE)\s+', '', name, flags=re.I)
-                name = re.sub(r'\bD/B/A\b.*?(?=\s+[A-Z])', '', name, flags=re.I).strip()
+                name = re.sub(r'^\d+\s+[A-Z].*?(?:ST|AVE|RD|DR|LN|BLVD|WAY|CT|PL|DRIVE|BLDG|APT|SUIT|STE)\s+.*', '', name, flags=re.I)
+                name = re.sub(r'\s+\d+\s+[A-Z].*$', '', name).strip()  # cut trailing address
                 if len(name) < 12:
                     continue
 
