@@ -3,113 +3,144 @@ import pdfplumber
 import requests
 import re
 import os
-import json
 from datetime import date, timedelta
-from google.oauth2.service_account import Credentials
-import gspread
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-def scrape_fmcsa_actives():
-    print("Script started")
-    SHEET_ID = os.environ['SHEET_ID']
-    creds_dict = json.loads(os.environ['GOOGLE_CREDENTIALS'])
-    
-    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-    print("Credentials loaded")
-    gc = gspread.authorize(creds)
-    sheet = gc.open_by_key(SHEET_ID).worksheet("Sheet1")
-    print("Sheet opened")
-    
-    existing_data = sheet.get_all_records()
-    existing_mcs = {row['mc_number'] for row in existing_data if 'mc_number' in row}
-    
+def sample_fmcsa_fitness_leads():
+    print("Script started - sampling 10 FITNESS-ONLY Interstate common carrier leads")
+
     today = date.today()
-    new_rows = []
-    
+    dates_to_try = [today, today - timedelta(days=1)]
+    found_entries = []
+    target_authority = "Interstate common carrier (except household goods)"
+
     session = requests.Session()
     retry = Retry(total=5, backoff_factor=1)
     adapter = HTTPAdapter(max_retries=retry)
     session.mount('http://', adapter)
     session.mount('https://', adapter)
-    print("Session created")
-    
-    dates_to_try = [today, today - timedelta(days=1)]
+
     for d in dates_to_try:
         url = f"https://li-public.fmcsa.dot.gov/lihtml/rptspdf/LI_REGISTER{d.strftime('%Y%m%d')}.PDF"
-        print("Trying URL:", url)
-        
+        print(f"Trying URL: {url}")
+
         try:
             resp = session.get(url, timeout=30)
-            if resp.status_code == 200:
-                print("Downloaded PDF for", d)
-                with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
-                    full_text = "".join(page.extract_text() or "" for page in pdf.pages)
-                
-                # LINE-BY-LINE ON GRANT SECTION: Skips boilerplate, pulls MC/applicant/rep/tel from blocks
-                print(f"DEBUG {d}: Scanning grant section line-by-line...")
-                grant_match = re.search(r"GRANT DECISION NOTICES", full_text, re.IGNORECASE)
-                if grant_match:
-                    grant_text = full_text[grant_match.end():]
-                    lines = [line.strip() for line in grant_text.split('\n') if line.strip()]
-                    idx = 0
-                    found_count = 0
-                    seen_mcs_this_run = set()
-                    while idx < len(lines):
-                        if re.match(r'MC-\d{5,8}', lines[idx]):
-                            mc = re.search(r’(MC-\d{5,8})’, lines[idx]).group(1)
-                            if mc in existing_mcs or mc in seen_mcs_this_run:
-                                idx += 1
-                                continue
-                            seen_mcs_this_run.add(mc)
-                            
-                            # Applicant name: next line after MC
-                            applicant = lines[idx+1] if idx+1 < len(lines) else ''
-                            
-                            # Rep name and tel: look for 'Tel:' line
-                            rep = ''
-                            tel = ''
-                            for k in range(idx+1, min(idx+10, len(lines))):
-                                if 'Tel:' in lines[k]:
-                                    tel = lines[k].strip()
-                                    rep = lines[k-1] if k-1 > idx else ''
-                                    break
-                            
-                            # Date from nearby line
-                            date_match = re.search(r'(\d{1,2}/\d{1,2}/\d{4})', ' '.join(lines[idx:idx+10]))
-                            idate = date_match.group(1) if date_match else d.strftime('%m/%d/%Y')
-                            
-                            new_rows.append([
-                                today.strftime('%Y-%m-%d'),
-                                idate,
-                                mc,
-                                applicant[:250],
-                                rep,
-                                tel,
-                                ""
-                            ])
-                            print(f"Found new MC: {mc} | Applicant: {applicant} | Rep: {rep} | Tel: {tel}")
-                            found_count += 1
-                            idx += 5  # skip ahead
-                        else:
-                            idx += 1
-                    print(f"DEBUG {d}: {found_count} new MCs added from grant lines")
-                else:
-                    print(f"DEBUG {d}: No GRANT section found")
-                break  # success — stop trying earlier dates
-            else:
-                print(f"PDF for {d} not available yet")
+            if resp.status_code != 200:
+                print(f"PDF for {d} not available (status {resp.status_code})")
                 continue
+
+            print(f"Downloaded PDF for {d}")
+            with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
+                full_text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+
+            lines = [line.strip() for line in full_text.split('\n') if line.strip()]
+
+            in_fitness = False
+            in_target_authority = False
+            idx = 0
+
+            while idx < len(lines) and len(found_entries) < 10:
+                line = lines[idx].lower()
+
+                # Detect start of FITNESS section
+                if "fitness" in line and ("fitness-only" in line or "motor common" in line):
+                    in_fitness = True
+                    print("Entered FITNESS section")
+                    idx += 1
+                    continue
+
+                if not in_fitness:
+                    idx += 1
+                    continue
+
+                # Check for target authority phrase
+                if target_authority.lower() in line:
+                    in_target_authority = True
+                    print(f"Found target authority block: {lines[idx]}")
+                    idx += 1
+                    continue
+
+                if in_target_authority:
+                    # Look for MC- line to start a new entry
+                    mc_match = re.match(r'(MC-\d{5,8}(?:-[A-Z])?)', lines[idx])
+                    if mc_match:
+                        mc = mc_match.group(1)
+
+                        # Name: usually next line
+                        name = lines[idx + 1] if idx + 1 < len(lines) else ""
+
+                        # City/State: often next or after name
+                        location = ""
+                        tel = ""
+                        entry_date = ""
+
+                        # Scan ahead up to 10 lines for location, tel, date
+                        for k in range(idx + 1, min(idx + 15, len(lines))):
+                            l = lines[k]
+
+                            # Tel:
+                            if re.search(r'tel:|phone:', l, re.I):
+                                tel = l.strip()
+                                break  # stop early if tel found
+
+                            # Date (mm/dd/yyyy or similar)
+                            date_match = re.search(r'\b(\d{1,2}/\d{1,2}/\d{4})\b', l)
+                            if date_match:
+                                entry_date = date_match.group(1)
+
+                            # Location: look for city-like patterns (e.g., CITY, ST or full addr)
+                            if ',' in l and len(l.split()) <= 4 and not tel and not date_match:
+                                location = l.strip()
+
+                        # Clean up
+                        if tel:
+                            tel = re.sub(r'(tel:|phone:|\(|\)|\-|\s+)', '', tel, flags=re.I).strip()
+                            if len(tel) == 10:
+                                tel = f"({tel[:3]}) {tel[3:6]}-{tel[6:]}"
+
+                        entry = {
+                            "mc": mc,
+                            "name": name.strip(),
+                            "location": location.strip(),
+                            "tel": tel,
+                            "date": entry_date or d.strftime('%m/%d/%Y'),
+                            "authority": target_authority
+                        }
+
+                        # Only add if we have MC and name
+                        if entry["name"]:
+                            found_entries.append(entry)
+                            print(f"Added entry {len(found_entries)}: {mc} - {name}")
+
+                        idx += 3  # skip ahead a bit to avoid overlap
+                    else:
+                        idx += 1
+
+                else:
+                    idx += 1
+
+            if found_entries:
+                print("\nSample 10 FITNESS-ONLY leads (or fewer):")
+                for i, e in enumerate(found_entries, 1):
+                    print(f"{i}. MC: {e['mc']}")
+                    print(f"   Name: {e['name']}")
+                    print(f"   Location: {e['location'] or 'N/A'}")
+                    print(f"   Tel: {e['tel'] or 'N/A'}")
+                    print(f"   Date: {e['date']}")
+                    print(f"   Authority: {e['authority']}")
+                    print("-" * 60)
+                break  # success, stop trying earlier dates
+            else:
+                print("No matching entries found in this PDF")
+
         except Exception as e:
-            print("Error for", d, ":", str(e))
+            print(f"Error processing {d}: {str(e)}")
             continue
-    
-    if new_rows:
-        sheet.append_rows(new_rows, value_input_option="RAW")
-        print(f"Added {len(new_rows)} new grant MCs to Google Sheet.")
-    else:
-        print("No new grant decisions today.")
+
+    if not found_entries:
+        print("No leads found across tried dates.")
 
 if __name__ == "__main__":
-    scrape_fmcsa_actives()
+    sample_fmcsa_fitness_leads()
