@@ -19,6 +19,11 @@ jobs:
       
       - name: Install dependencies
         run: pip install -r requirements.txt
+
+      - name: Install Playwright browser and deps
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
       
       - name: Write credentials
         run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > creds.json
