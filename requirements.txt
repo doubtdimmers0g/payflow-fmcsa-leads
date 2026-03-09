@@ -2,5 +2,6 @@ requests
 pdfplumber
 pandas
 beautifulsoup4
+playwright
 gspread
 google-auth
