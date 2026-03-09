@@ -63,6 +63,9 @@ def main():
             print(content_preview)
             print("...")
 
+# Debug content length
+            print(f"Content length: {len(content)} chars")
+
             lines = [line.strip() for line in content.split('\n') if line.strip()]
 
             target_phrases = [
@@ -71,7 +74,7 @@ def main():
             ]
 
             entries = []
-            in_block = False  # Fixed: initialize here
+            in_block = False
             current_authority = None
             i = 0
             while i < len(lines):
@@ -89,36 +92,40 @@ def main():
                     i += 1
                     continue
 
-                # MC-180xxxx
+                # Broader MC match (MC-180xxxx or MC-180xxxx-C)
                 mc_match = re.search(r'(MC-180\d{4,5}(?:-[A-Z])?)', line, re.I)
                 if mc_match:
                     mc = mc_match.group(1).upper()
+                    print(f"MC found in block: {mc} (line: {line[:100]})")
 
                     name = ""
                     tel = ""
                     location = "N/A"
 
-                    # Scan ahead
+                    # Scan ahead more aggressively
                     j = 1
-                    while j < 15 and i + j < len(lines):
+                    while j < 20 and i + j < len(lines):
                         next_line = lines[i + j]
 
-                        # Flexible Tel match
+                        # Very flexible Tel match
                         tel_match = re.search(r'tel\s*[:.]?\s*(\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4})', next_line, re.I)
                         if tel_match:
                             tel_clean = re.sub(r'[\s().-]', '', tel_match.group(1))
                             if len(tel_clean) == 10:
                                 tel = f"({tel_clean[:3]}) {tel_clean[3:6]}-{tel_clean[6:]}"
+                                print(f"Tel found: {tel} (line: {next_line[:80]})")
 
-                        # Name (substantial, not Tel or ZIP)
-                        if len(next_line) > 12 and not tel_match and not re.search(r'\d{5}', next_line):
+                        # Name (long line, not pure ZIP or Tel)
+                        if len(next_line) > 15 and not re.search(r'^\d{5}', next_line) and not tel_match:
                             if not name:
                                 name = next_line.strip()
+                                print(f"Name candidate: {name[:80]}")
 
-                        # Location
+                        # Location (city/state/ZIP)
                         loc_match = re.search(r'([A-Za-z ]+,\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)', next_line)
                         if loc_match and location == "N/A":
                             location = loc_match.group(1).strip()
+                            print(f"Location candidate: {location}")
 
                         j += 1
 
@@ -131,12 +138,14 @@ def main():
                             "authority": current_authority
                         }
                         entries.append(entry)
-                        print(f"Added: {mc} - {name[:60]}... Tel: {tel} | Location: {location}")
+                        print(f"Added entry: {mc} - {name[:60]}... Tel: {tel} | Loc: {location}")
+                    else:
+                        print(f"MC {mc} found but no Tel in scan range")
 
                     if len(entries) >= 10:
                         break
 
-                # Reset on major section
+                # Reset block on major headers
                 if "grant decision notices" in line.lower() or "fitness-only" in line.lower() or "certificate" in line.lower():
                     in_block = False
 
@@ -153,7 +162,7 @@ def main():
                     print(f"   Authority: {e['authority'][:80]}...")
                     print("-" * 60)
             else:
-                print("No matching MCs with Tel found - check content preview or Tel format.")
+                print("No leads extracted. Check Tel format in content preview or scan range.")
 
         except Exception as e:
             print(f"Playwright error: {str(e)}")
