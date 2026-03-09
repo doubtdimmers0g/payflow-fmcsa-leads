@@ -1,15 +1,14 @@
 from playwright.sync_api import sync_playwright
 import re
 from datetime import date
-import os
-import gspread
-from google.oauth2.service_account import Credentials
+import time
 
 def main():
-    print("Playwright scraper: Fetches HTML Detail for today's FMCSA Register")
+    print("TEST MODE: Playwright HTML Detail scraper - no sheet writes")
+    print("Only printing leads to console for validation")
 
     today = date.today()
-    today_str = today.strftime('%m/%d/%y')  # e.g., 03/09/26 for row match
+    today_str = today.strftime('%m/%d/%y')  # e.g., 03/09/26
 
     entries = []
     with sync_playwright() as p:
@@ -19,12 +18,12 @@ def main():
         try:
             print("Loading selection page...")
             page.goto("https://li-public.fmcsa.dot.gov/LIVIEW/PKG_REGISTER.prc_reg_list", timeout=60000)
-            page.wait_for_load_state("networkidle", timeout=60000)
+            page.wait_for_load_state("networkidle")
 
             print(f"Looking for row with date '{today_str}'...")
             row = page.locator(f"tr:has-text('{today_str}')")
             if row.count() == 0:
-                print("Today's row not found - register may not be published yet.")
+                print("Today's row not found. Register may not be updated yet.")
                 return
 
             detail_button = row.locator("input[value='HTML Detail']")
@@ -38,6 +37,12 @@ def main():
 
             page.wait_for_load_state("networkidle", timeout=60000)
             print("HTML Detail page loaded")
+
+            # Debug: print first chunk of content
+            content_preview = page.inner_text("body")[:1000]
+            print("Content preview (first 1000 chars):")
+            print(content_preview)
+            print("...")
 
             content = page.inner_text("body")
             lines = [line.strip() for line in content.split('\n') if line.strip()]
@@ -56,7 +61,7 @@ def main():
                 if any(p in line for p in target_phrases):
                     in_block = True
                     current_authority = line
-                    print(f"Found authority block: {current_authority[:80]}...")
+                    print(f"Found block: {current_authority[:80]}...")
                     i += 1
                     continue
 
@@ -98,7 +103,7 @@ def main():
                             "scrape_date": today.strftime('%Y-%m-%d')
                         }
                         entries.append(entry)
-                        print(f"Added: {mc} - {name[:60]}... Tel: {tel}")
+                        print(f"Added: {mc} - {name[:60]}... Tel: {tel} | Location: {location}")
 
                     if len(entries) >= 10:
                         break
@@ -106,42 +111,22 @@ def main():
                 i += 1
 
             if entries:
-                print(f"\nFound {len(entries)} leads in target blocks")
-                append_to_sheet(entries)
+                print(f"\nFound {len(entries)} leads")
+                print("\nSAMPLE LEADS (TEST MODE):")
+                for i, e in enumerate(entries[:10], 1):
+                    print(f"{i}. MC: {e['mc']}")
+                    print(f"   Name: {e['name']}")
+                    print(f"   Location: {e['location']}")
+                    print(f"   Tel: {e['tel']}")
+                    print(f"   Authority: {e['authority'][:80]}...")
+                    print("-" * 60)
             else:
-                print("No matching MCs with Tel found in authority blocks.")
+                print("No matching MCs with Tel found in target blocks.")
 
         except Exception as e:
             print(f"Playwright error: {str(e)}")
         finally:
             browser.close()
-
-def append_to_sheet(entries):
-    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-    creds = Credentials.from_service_account_file('creds.json', scopes=scope)
-    client = gspread.authorize(creds)
-
-    sheet_id = os.environ.get('SHEET_ID')
-    if not sheet_id:
-        print("SHEET_ID env var missing - skipping sheet append")
-        return
-
-    try:
-        sheet = client.open_by_key(sheet_id).worksheet("FitnessPrelim")  # Change tab name if needed
-        rows = []
-        for e in entries:
-            rows.append([
-                e['mc'],
-                e['name'],
-                e['location'],
-                e['tel'],
-                e['scrape_date'],
-                e['authority'][:100]
-            ])
-        sheet.append_rows(rows)
-        print(f"Appended {len(entries)} leads to FitnessPrelim tab")
-    except Exception as e:
-        print(f"Sheet append error: {str(e)}")
 
 if __name__ == "__main__":
     main()
