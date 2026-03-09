@@ -1,16 +1,15 @@
 from playwright.sync_api import sync_playwright
 import re
 from datetime import date
-import time
 
 def main():
     print("TEST MODE: Playwright HTML Detail scraper - no sheet writes")
-    print("Only printing leads to console for validation")
+    print("Only printing to console for validation")
 
     today = date.today()
-    today_str = today.strftime('%m/%d/%y')  # e.g., 03/09/26
+    today_str = today.strftime('%m/%d/%Y')  # Full year: 03/09/2026
+    print(f"Searching for row with date: '{today_str}'")
 
-    entries = []
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
         page = browser.new_page()
@@ -20,27 +19,44 @@ def main():
             page.goto("https://li-public.fmcsa.dot.gov/LIVIEW/PKG_REGISTER.prc_reg_list", timeout=60000)
             page.wait_for_load_state("networkidle")
 
-            print(f"Looking for row with date '{today_str}'...")
+            print(f"Page title: {page.title()}")
+
+            # Debug: print first few rows to see format
+            rows_preview = page.locator("tr").all_inner_texts()[:5]
+            print("First few rows preview:")
+            for r in rows_preview:
+                print(r[:100] + "..." if len(r) > 100 else r)
+
+            print(f"Looking for row with '{today_str}'...")
             row = page.locator(f"tr:has-text('{today_str}')")
-            if row.count() == 0:
-                print("Today's row not found. Register may not be updated yet.")
+            row_count = row.count()
+            print(f"Row count found: {row_count}")
+
+            if row_count == 0:
+                print("Today's row still not found. Possible format mismatch or page not updated.")
                 return
 
             detail_button = row.locator("input[value='HTML Detail']")
-            if detail_button.count() == 0:
-                print("HTML Detail button not found in row.")
+            button_count = detail_button.count()
+            print(f"HTML Detail button count in row: {button_count}")
+
+            if button_count == 0:
+                print("Button not found. Inspecting row HTML...")
+                row_html = row.inner_html()
+                print("Row HTML preview:", row_html[:500])
                 return
 
-            print("Submitting HTML Detail form...")
+            print("Clicking HTML Detail...")
             with page.expect_navigation(timeout=60000):
                 detail_button.click()
 
             page.wait_for_load_state("networkidle", timeout=60000)
             print("HTML Detail page loaded")
+            print(f"Detail page title: {page.title()}")
 
-            # Debug: print first chunk of content
-            content_preview = page.inner_text("body")[:1000]
-            print("Content preview (first 1000 chars):")
+            # Preview content
+            content_preview = page.inner_text("body")[:1500]
+            print("HTML Detail content preview (first 1500 chars):")
             print(content_preview)
             print("...")
 
@@ -52,6 +68,7 @@ def main():
                 "Interstate contract carrier (except household goods)"
             ]
 
+            entries = []
             in_block = False
             current_authority = None
             i = 0
@@ -99,8 +116,7 @@ def main():
                             "name": name,
                             "location": location,
                             "tel": tel,
-                            "authority": current_authority,
-                            "scrape_date": today.strftime('%Y-%m-%d')
+                            "authority": current_authority
                         }
                         entries.append(entry)
                         print(f"Added: {mc} - {name[:60]}... Tel: {tel} | Location: {location}")
