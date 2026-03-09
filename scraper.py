@@ -99,51 +99,56 @@ def main():
                     name = ""
                     tel = ""
                     location = "N/A"
+                    address_started = False
 
                     j = 1
                     while j < 25 and i + j < len(lines):
                         next_line = lines[i + j]
 
-                        # Phone match (updated for "Phone:")
-                        tel_match = re.search(r'phone\s*[:.]?\s*(\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4})', next_line, re.I)
-                        if tel_match:
+                        # Phone match - look for "Phone:" specifically
+                        tel_match = re.search(r'phone\s*:\s*(\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4})', next_line, re.I)
+                        if tel_match and not tel:  # take first Phone only
                             tel_clean = re.sub(r'[\s().-]', '', tel_match.group(1))
                             if len(tel_clean) == 10:
                                 tel = f"({tel_clean[:3]}) {tel_clean[3:6]}-{tel_clean[6:]}"
                                 print(f"Phone found: {tel} (line: {next_line[:80]})")
 
-                        if len(next_line) > 12 and not tel_match and not re.search(r'^\d{5}', next_line):
+                        # Name - first substantial line after MC/date, before address
+                        if len(next_line) > 10 and not tel_match and not re.search(r'^\d', next_line) and not address_started:
                             if not name:
                                 name = next_line.strip()
                                 print(f"Name candidate: {name[:80]}")
 
-                        loc_match = re.search(r'([A-Za-z ]+,\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?)', next_line)
-                        if loc_match and location == "N/A":
-                            location = loc_match.group(1).strip()
-                            print(f"Location candidate: {location}")
+                        # Detect address start (street number or city/state/ZIP)
+                        if re.search(r'^\d{1,5}\s', next_line) or re.search(r'[A-Za-z ]+,\s*[A-Z]{2}\s*\d{5}', next_line):
+                            address_started = True
+                            if location == "N/A" and re.search(r'[A-Za-z ]+,\s*[A-Z]{2}\s*\d{5}', next_line):
+                                location = next_line.strip()
+                                print(f"Location: {location}")
 
                         j += 1
 
-                    # Final name cleanup
+                    # Final name cleanup (remove any leaked address)
                     name = re.sub(r'\s+\d{1,5}\s+[A-Z].*$', '', name).strip()
                     name = re.sub(r'\bD/B/A\b.*?(?=\s+[A-Z])', '', name, flags=re.I).strip()
 
-                    if tel:
+                    if tel and name != "N/A":
                         entry = {
                             "mc": mc,
-                            "name": name or "N/A",
+                            "name": name,
                             "location": location,
                             "tel": tel,
                             "authority": current_authority
                         }
                         entries.append(entry)
-                        print(f"ADDED ENTRY: {mc} - {name[:60]}... Tel: {tel} | Loc: {location}")
+                        print(f"ADDED ENTRY: {mc} - {name}... Tel: {tel} | Loc: {location}")
                     else:
-                        print(f"MC {mc} found but no Phone in 25-line scan")
+                        print(f"MC {mc} skipped - missing Tel or valid name")
 
                     if len(entries) >= 10:
                         break
 
+                # Reset block
                 if "grant decision notices" in line.lower() or "fitness-only" in line.lower() or "certificate" in line.lower():
                     in_block = False
 
@@ -160,7 +165,7 @@ def main():
                     print(f"   Authority: {e['authority'][:80]}...")
                     print("-" * 60)
             else:
-                print("No leads - Phone not detected. Check preview for 'Phone:' format.")
+                print("No leads added - check if Phone lines are being hit and name is valid.")
 
         except Exception as e:
             print(f"Playwright error: {str(e)}")
