@@ -34,7 +34,7 @@ def sample_fmcsa_fitness_leads_today_only():
                 continue
 
             with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
-                # Focus on later pages where new MC-180xxxx live
+                # Focus on later pages (FITNESS + new grants)
                 start_page = max(0, len(pdf.pages) - 60)
                 text_pages = pdf.pages[start_page:]
                 full_text = "\n".join(page.extract_text() or "" for page in text_pages if page.extract_text())
@@ -46,35 +46,44 @@ def sample_fmcsa_fitness_leads_today_only():
 
             print("  PDF loaded successfully! Extracting...")
 
-            # Regex for MC-17xxxx+, date, name, Tel (handles column bleed)
+            # Regex for MC-17xxxx+, date, name fragment, Tel (column bleed handling)
             pattern = re.compile(
                 r'(MC-(?:1[7-9]|2[0-9])\d{5,6}(?:-[A-Z])?)\s+'
                 r'(\d{2}/\d{2}/\d{4})\s+'
                 r'(.+?)\s+'
-                r'(?:[A-Z\s,]+[A-Z]{2}\s*\d{5})?\s*'
+                r'(?:[A-Z\s,]+[A-Z]{2}\s*\d{5}(?:-\d{4})?)?\s*'
                 r'Tel:\s*(\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4})',
                 re.IGNORECASE | re.DOTALL | re.MULTILINE
             )
 
             matches = pattern.findall(full_text)
-            print(f"  Raw matches: {len(matches)}")
+            print(f"  Raw matches found: {len(matches)}")
 
             found_entries = []
+            seen_mcs = set()  # basic dedupe
+
             for mc, dec_date, raw_name, tel_raw in matches:
+                if mc in seen_mcs:
+                    continue
+                seen_mcs.add(mc)
+
+                # Clean name
                 name = re.sub(r'\s+', ' ', raw_name.strip())
-                name = re.sub(r'^\d+\s+[A-Z].*?(?:ST|AVE|RD|DR|LN|BLVD|WAY)\s+', '', name, flags=re.I)
-                name = re.sub(r'D/B/A.*', '', name, flags=re.I).strip()
-                if len(name) < 10:
+                name = re.sub(r'^\d+\s+[A-Z].*?(?:ST|AVE|RD|DR|LN|BLVD|WAY|CT|PL|DRIVE)\s+', '', name, flags=re.I)
+                name = re.sub(r'\bD/B/A\b.*?(?=\s+[A-Z])', '', name, flags=re.I).strip()
+                if len(name) < 12:
                     continue
 
+                # Clean Tel
                 tel_clean = re.sub(r'[\s().-]', '', tel_raw)
                 if len(tel_clean) != 10:
                     continue
                 tel = f"({tel_clean[:3]}) {tel_clean[3:6]}-{tel_clean[6:]}"
 
+                # Location
                 loc_start = full_text.find(mc)
-                loc_snippet = full_text[loc_start:loc_start+400]
-                loc_match = re.search(r'([A-Z][A-Za-z\s,]+[A-Z]{2}\s*\d{5}(?:-\d{4})?)', loc_snippet)
+                loc_snippet = full_text[loc_start:loc_start+500]
+                loc_match = re.search(r'([A-Z][A-Za-z\s]+(?:[A-Z]{2}|\d{5}(?:-\d{4})?)\s*\d{5}(?:-\d{4})?)', loc_snippet, re.I)
                 location = loc_match.group(1).strip() if loc_match else "N/A"
 
                 entry = {
@@ -86,7 +95,7 @@ def sample_fmcsa_fitness_leads_today_only():
                 }
 
                 found_entries.append(entry)
-                print(f"  Added: {mc} - {name[:50]}... Tel: {tel}")
+                print(f"  Added: {mc} - {name[:60]}... Tel: {tel}")
 
                 if len(found_entries) >= 10:
                     break
@@ -100,16 +109,16 @@ def sample_fmcsa_fitness_leads_today_only():
                     print(f"   Tel: {e['tel']}")
                     print(f"   Date: {e['date']}")
                     print("-" * 60)
-                return  # done
+                return  # Success - stop
             else:
-                print("  No matches - parsing issue or no new entries yet.")
+                print("  No valid entries found (parsing or no new grants today).")
 
         except Exception as e:
             print(f"  Error: {str(e)}. Retrying...")
             time.sleep(60)
             continue
 
-    print(f"Failed after {max_retries} attempts. PDF likely not published yet. Try again in 30-60 min.")
+    print(f"Failed after {max_retries} attempts. Try again later (PDF likely delayed).")
 
 if __name__ == "__main__":
     sample_fmcsa_fitness_leads_today_only()
