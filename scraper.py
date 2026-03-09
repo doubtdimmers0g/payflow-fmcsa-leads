@@ -69,15 +69,14 @@ def main():
             ]
 
             entries = []
-            in_block = False
-            current_authority = None
             i = 0
             while i < len(lines):
-                line = lines[i]
+                line = lines[i].lower()
 
-                if any(p in line for p in target_phrases):
+                # Detect authority block start
+                if any(p.lower() in line for p in target_phrases):
+                    current_authority = lines[i]  # keep original case
                     in_block = True
-                    current_authority = line
                     print(f"Found block: {current_authority[:80]}...")
                     i += 1
                     continue
@@ -86,34 +85,42 @@ def main():
                     i += 1
                     continue
 
-                mc_match = re.search(r'(MC-180\d{4,5}(?:-[A-Z])?)', line)
+                # Look for MC-180xxxx
+                mc_match = re.search(r'(mc-180\d{4,5}(?:-[a-z])?)', line, re.I)
                 if mc_match:
-                    mc = mc_match.group(1)
-
+                    mc = mc_match.group(1).upper()
                     name = ""
                     tel = ""
                     location = "N/A"
-                    j = 1
-                    while j < 10 and i + j < len(lines):
-                        next_line = lines[i + j]
-                        if "Tel:" in next_line:
-                            tel_match = re.search(r'Tel:\s*(\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4})', next_line, re.I)
-                            if tel_match:
-                                tel_clean = re.sub(r'[\s().-]', '', tel_match.group(1))
-                                if len(tel_clean) == 10:
-                                    tel = f"({tel_clean[:3]}) {tel_clean[3:6]}-{tel_clean[6:]}"
+
+                    # Scan ahead 20 lines for name, tel, location
+                    for j in range(1, 21):
+                        if i + j >= len(lines):
                             break
-                        if len(next_line) > 12 and not "Tel:" in next_line:
-                            if not name:
-                                name = next_line.strip()
-                            elif re.search(r'[A-Z]{2}\s*\d{5}', next_line) and location == "N/A":
-                                location = next_line.strip()
-                        j += 1
+                        next_line = lines[i + j]
+
+                        # Tel
+                        tel_match = re.search(r'tel:\s*(\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4})', next_line, re.I)
+                        if tel_match:
+                            tel_clean = re.sub(r'[\s().-]', '', tel_match.group(1))
+                            if len(tel_clean) == 10:
+                                tel = f"({tel_clean[:3]}) {tel_clean[3:6]}-{tel_clean[6:]}"
+                            continue
+
+                        # Name (first substantial line after MC)
+                        if len(next_line) > 15 and not re.search(r'\d{3}', next_line) and not name:
+                            name = next_line.strip()
+                            continue
+
+                        # Location (city, state ZIP pattern)
+                        if re.search(r'[a-z ]+,\s*[a-z]{2}\s*\d{5}(?:-\d{4})?', next_line, re.I):
+                            location = next_line.strip()
+                            continue
 
                     if tel:
                         entry = {
                             "mc": mc,
-                            "name": name,
+                            "name": name or "N/A",
                             "location": location,
                             "tel": tel,
                             "authority": current_authority
@@ -123,6 +130,10 @@ def main():
 
                     if len(entries) >= 10:
                         break
+
+                # Reset block if we hit a new section or end of block
+                if "grant decision notices" in line or "fitness" in line or "certificate" in line:
+                    in_block = False
 
                 i += 1
 
@@ -137,7 +148,7 @@ def main():
                     print(f"   Authority: {e['authority'][:80]}...")
                     print("-" * 60)
             else:
-                print("No matching MCs with Tel found in target blocks.")
+                print("No matching MCs with Tel found - check content preview for structure.")
 
         except Exception as e:
             print(f"Playwright error: {str(e)}")
