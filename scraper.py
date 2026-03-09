@@ -3,7 +3,7 @@ import re
 from datetime import date
 
 def main():
-    print("TEST MODE: FMCSA HTML Detail scraper - extracting only MC, Date, Company Name, Authority")
+    print("TEST MODE: FMCSA HTML Detail scraper - extracting MC, Date, Company Name, Authority")
     print("No sheet writes - console only for validation")
 
     today = date.today()
@@ -44,6 +44,8 @@ def main():
             ]
 
             entries = []
+            in_block = False
+            current_authority = None
             i = 0
             while i < len(lines):
                 line = lines[i]
@@ -51,49 +53,49 @@ def main():
                 # Detect authority block
                 matched_phrase = next((p for p in target_phrases if p in line), None)
                 if matched_phrase:
+                    in_block = True
                     current_authority = matched_phrase
                     print(f"Found block: {current_authority[:80]}...")
                     i += 1
                     continue
 
-                # Look for MC line
+                if not in_block:
+                    i += 1
+                    continue
+
+                # MC match
                 mc_match = re.search(r'(MC-180\d{4,5}(?:-[A-Z])?)', line, re.I)
                 if mc_match:
                     mc = mc_match.group(1).upper()
 
                     date_str = ""
                     name = ""
-                    # Scan ahead for date and name
+
                     j = 1
-                    while j < 10 and i + j < len(lines):
+                    while j < 15 and i + j < len(lines):
                         next_line = lines[i + j]
 
-                        # Date (mm/dd/yyyy right after MC)
-                        if not date_str:
-                            date_match = re.search(r'\d{2}/\d{2}/\d{4}', next_line)
-                            if date_match:
-                                date_str = date_match.group(0)
+                        # Date (mm/dd/yyyy)
+                        date_match = re.search(r'\d{2}/\d{2}/\d{4}', next_line)
+                        if date_match and not date_str:
+                            date_str = date_match.group(0)
 
-                        # Name - first substantial line after MC/date, before address
+                        # Name - first substantial line after MC/date, stop before street number
                         if len(next_line) > 10 and not date_match and not re.search(r'^\d{1,5}\s', next_line):
                             if not name:
                                 name = next_line.strip()
 
                         j += 1
 
-                    # Skip if no name or date
-                    if not name or not date_str:
-                        i += 1
-                        continue
-
-                    entry = {
-                        "mc": mc,
-                        "date": date_str,
-                        "name": name,
-                        "authority": current_authority
-                    }
-                    entries.append(entry)
-                    print(f"EXTRACTED: {mc} | Date: {date_str} | Name: {name} | Authority: {current_authority[:80]}...")
+                    if name and date_str:
+                        entry = {
+                            "mc": mc,
+                            "date": date_str,
+                            "name": name,
+                            "authority": current_authority
+                        }
+                        entries.append(entry)
+                        print(f"EXTRACTED: {mc} | Date: {date_str} | Name: {name} | Authority: {current_authority[:80]}...")
 
                     if len(entries) >= 10:
                         break
@@ -105,10 +107,10 @@ def main():
                 print("\nSAMPLE LEADS (TEST MODE):")
                 print("MC Number | Date | Company Name | Authority Type")
                 print("-" * 80)
-                for e in entries[:10]:
+                for e in entries:
                     print(f"{e['mc']} | {e['date']} | {e['name']} | {e['authority']}")
             else:
-                print("No entries extracted - check if MC lines are being hit in blocks.")
+                print("No valid entries found - check if MC/date/name lines are being hit.")
 
         except Exception as e:
             print(f"Playwright error: {str(e)}")
