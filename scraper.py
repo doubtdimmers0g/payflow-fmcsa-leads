@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import re
 
 def main():
-    print("TEST MODE: FMCSA GRANT - ALL Leads + Authority Type (now using FITNESS-ONLY table)")
+    print("TEST MODE: FMCSA GRANT - ALL Leads + Authority Type + Rep Name")
     print("No sheet writes - console only for validation\n")
 
     # Central Time lock (Houston)
@@ -45,14 +45,13 @@ def main():
             for tag in soup.find_all(['h1', 'h2', 'h3', 'h4', 'strong', 'p']):
                 if re.search(r'GRANT DECISION NOTICES', tag.get_text(strip=True), re.I):
                     grant_header = tag
-                    print("✅ Located GRANT DECISION NOTICES section header")
                     break
 
             if not grant_header:
                 print("Could not locate GRANT section.")
                 return
 
-            # Find the SECOND matching table (Table 2 - FITNESS-ONLY)
+            # Find the SECOND matching table (FITNESS-ONLY)
             target_table = None
             count = 0
             for table in grant_header.find_all_next('table'):
@@ -61,16 +60,16 @@ def main():
                     headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])]
                     if 'Filed' in headers and 'Applicant' in headers:
                         count += 1
-                        if count == 2:  # <--- this line picks the second table
+                        if count == 2:
                             target_table = table
-                            print(f"✅ Using FITNESS-ONLY table (Table 2) with headers: {headers}")
+                            print(f"✅ Using FITNESS-ONLY table with headers: {headers}")
                             break
 
             if not target_table:
                 print("Could not find FITNESS-ONLY table.")
                 return
 
-            # === EXTRACTION - ALL leads + Authority Type (unchanged) ===
+            # === EXTRACTION - ALL leads + Authority Type + Rep Name ===
             entries = []
             rows = target_table.find_all('tr')[1:]
             current_authority = ""
@@ -104,6 +103,10 @@ def main():
                 name = applicant_lines[0] if applicant_lines else ""
                 address = " ".join(applicant_lines[1:]) if len(applicant_lines) > 1 else ""
 
+                # NEW: Representative name = first line of the Rep column
+                rep_lines = [line.strip() for line in rep_text.splitlines() if line.strip()]
+                rep_name = rep_lines[0] if rep_lines else "N/A"
+
                 phone_match = re.search(r'Phone:\s*([\(\)\d\s-]+)', rep_text, re.I)
                 phone = phone_match.group(1).strip() if phone_match else "N/A"
 
@@ -113,17 +116,18 @@ def main():
                     "address": address,
                     "filed_date": filed_date,
                     "phone": phone,
+                    "rep_name": rep_name,
                     "authority_type": current_authority
                 }
                 entries.append(entry)
-                print(f"EXTRACTED → {mc} | {name} | {address[:40]}... | {filed_date} | {phone} | {current_authority}")
+                print(f"EXTRACTED → {mc} | {name} | Rep: {rep_name} | {filed_date} | {phone} | {current_authority}")
 
             print(f"\n✅ Found {len(entries)} leads (all authority types).")
             if entries:
-                print("\nMC Number | Company Name | Address | Filed Date | Phone | Authority Type")
-                print("-" * 140)
+                print("\nMC Number | Company Name | Rep Name | Address | Filed Date | Phone | Authority Type")
+                print("-" * 160)
                 for e in entries:
-                    print(f"{e['mc']} | {e['name']} | {e['address']} | {e['filed_date']} | {e['phone']} | {e['authority_type']}")
+                    print(f"{e['mc']} | {e['name']} | {e['rep_name']} | {e['address']} | {e['filed_date']} | {e['phone']} | {e['authority_type']}")
             else:
                 print("No leads found today.")
 
