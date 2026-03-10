@@ -5,24 +5,27 @@ from zoneinfo import ZoneInfo
 import re
 
 def main():
-    print("TEST MODE: FMCSA HTML Detail scraper - GRANT DECISION NOTICES only (detailed table - DEBUG MODE)")
+    print("TEST MODE: FMCSA HTML Detail scraper - GRANT DECISION NOTICES only (FINAL)")
     print("No sheet writes - console only for validation\n")
 
+    # Central Time lock (Houston)
     central = ZoneInfo("America/Chicago")
     today_str = datetime.now(central).strftime('%m/%d/%Y')
-    print(f"Today in Central Time: {today_str}\n")
+    print(f"Today in Central Time: {today_str}")
+    print(f"Loading register for: {today_str}\n")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
         page = browser.new_page()
 
         try:
+            print("Loading selection page...")
             page.goto("https://li-public.fmcsa.dot.gov/LIVIEW/PKG_REGISTER.prc_reg_list", timeout=60000)
             page.wait_for_load_state("networkidle")
 
             row = page.locator(f"tr:has-text('{today_str}')")
             if row.count() == 0:
-                print("Today's row not found.")
+                print("Today's register row not found.")
                 return
 
             detail_button = row.locator("input[value='HTML Detail']")
@@ -30,6 +33,7 @@ def main():
                 print("HTML Detail button not found.")
                 return
 
+            print("Navigating to HTML Detail page...")
             with page.expect_navigation(timeout=60000):
                 detail_button.click()
             page.wait_for_load_state("networkidle", timeout=60000)
@@ -64,17 +68,57 @@ def main():
                 print("Could not find detailed GRANT table.")
                 return
 
-            # === DEBUG: Show raw row structure ===
+            # === FINAL EXTRACTION: only 4-cell data rows ===
+            entries = []
             rows = target_table.find_all('tr')[1:]  # skip header
-            print(f"\n=== DEBUG: Total rows in GRANT table: {len(rows)} ===")
-            for i, r in enumerate(rows[:8]):  # first 8 rows only
-                cells = r.find_all(['th', 'td'])
-                print(f"\nRow {i+1} — {len(cells)} cells:")
-                for j, cell in enumerate(cells):
-                    text = cell.get_text(strip=True).replace('\n', ' | ')
-                    print(f"   Cell {j}: '{text}'")
 
-            print("\nDebug complete — share these logs and I'll send the final working parser immediately.")
+            for r in rows:
+                cells = r.find_all(['th', 'td'])
+                if len(cells) != 4:  # skip authority headers and blanks
+                    continue
+
+                mc_cell = cells[0].get_text(strip=True)
+                filed_text = cells[1].get_text(strip=True)
+                applicant_text = cells[2].get_text(separator='\n', strip=True)
+                rep_text = cells[3].get_text(separator='\n', strip=True)
+
+                # MC
+                mc_match = re.search(r'(MC-\d{4,8}(?:-[A-Z])?)', mc_cell, re.I)
+                if not mc_match:
+                    continue
+                mc = mc_match.group(1)
+
+                # Filed date
+                date_match = re.search(r'(\d{2}/\d{2}/\d{4})', filed_text)
+                filed_date = date_match.group(1) if date_match else ""
+
+                # Applicant: name on first line, rest = address
+                applicant_lines = [line.strip() for line in applicant_text.splitlines() if line.strip()]
+                name = applicant_lines[0] if applicant_lines else ""
+                address = " ".join(applicant_lines[1:]) if len(applicant_lines) > 1 else ""
+
+                # Phone from rep cell
+                phone_match = re.search(r'Phone:\s*([\(\)\d\s-]+)', rep_text, re.I)
+                phone = phone_match.group(1).strip() if phone_match else "N/A"
+
+                entry = {
+                    "mc": mc,
+                    "name": name,
+                    "filed_date": filed_date,
+                    "address": address,
+                    "phone": phone
+                }
+                entries.append(entry)
+                print(f"EXTRACTED → {mc} | {name} | Filed: {filed_date} | Phone: {phone}")
+
+            print(f"\n✅ Found {len(entries)} new leads in the GRANT DECISION NOTICES detailed table.")
+            if entries:
+                print("\nMC Number | Company Name | Filed Date | Phone")
+                print("-" * 70)
+                for e in entries:
+                    print(f"{e['mc']} | {e['name']} | {e['filed_date']} | {e['phone']}")
+            else:
+                print("No grants found (quiet day).")
 
         except Exception as e:
             print(f"Error: {str(e)}")
