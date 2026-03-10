@@ -12,7 +12,7 @@ def main():
     central = ZoneInfo("America/Chicago")
     today_str = datetime.now(central).strftime('%m/%d/%Y')
     print(f"Today in Central Time: {today_str}")
-    print(f"Looking for new grants decided on: {today_str}\n")
+    print(f"Loading register for: {today_str}\n")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
@@ -41,7 +41,7 @@ def main():
 
             soup = BeautifulSoup(page.content(), 'html.parser')
 
-            # Find the exact table with the 'Decided' column (robust, no hard-coded index)
+            # Find the Grant Decision table
             target_table = None
             for table in soup.find_all('table'):
                 header_row = table.find('tr')
@@ -56,7 +56,7 @@ def main():
                 print("Could not find table with 'Decided' column.")
                 return
 
-            # Extract leads
+            # Extract ALL rows (this is today's fresh batch)
             entries = []
             rows = target_table.find_all('tr')[1:]  # skip header
 
@@ -69,14 +69,9 @@ def main():
                 title = cells[1].strip()
                 decided = cells[2].strip()
 
-                # Keep only today's decisions
-                if decided != today_str:
-                    continue
-
                 # Clean company name (split off location)
                 name = title.split(' - ', 1)[0] if ' - ' in title else title
 
-                # Basic MC validation
                 if re.search(r'MC-\d{4,8}', mc, re.I):
                     entry = {
                         "mc": mc,
@@ -85,16 +80,19 @@ def main():
                         "location": title.split(' - ', 1)[1] if ' - ' in title else ""
                     }
                     entries.append(entry)
-                    print(f"EXTRACTED → {mc} | {name} | {decided}")
+                    print(f"EXTRACTED → {mc} | {name} | Decided: {decided}")
 
-            print(f"\n✅ Found {len(entries)} new leads decided today.")
+            # Quick summary for visibility
+            decided_dates = {e["decided_date"] for e in entries}
+            print(f"\n✅ Found {len(entries)} new leads in today's register.")
+            print(f"Decided dates present: {sorted(decided_dates)}")
             if entries:
-                print("\nMC Number | Company Name | Location | Date")
+                print("\nMC Number | Company Name | Location | Decided")
                 print("-" * 70)
                 for e in entries:
                     print(f"{e['mc']} | {e['name']} | {e['location']} | {e['decided_date']}")
             else:
-                print("No grants decided today (normal on quiet days).")
+                print("No grants in today's register (quiet day).")
 
         except Exception as e:
             print(f"Error: {str(e)}")
