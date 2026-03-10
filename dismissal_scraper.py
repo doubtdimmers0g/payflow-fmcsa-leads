@@ -2,11 +2,10 @@ from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import re
 
 def main():
-    print("TEST MODE: FMCSA DISMISSAL Scraper - Flexible Header + Table Search")
-    print("No sheet writes - console only for validation\n")
+    print("TEST MODE: FULL PAGE TABLE DEBUG")
+    print("No sheet writes - just listing every table\n")
 
     central = ZoneInfo("America/Chicago")
     today_str = datetime.now(central).strftime('%m/%d/%Y')
@@ -39,76 +38,15 @@ def main():
 
             soup = BeautifulSoup(page.content(), 'html.parser')
 
-            # Flexible search for DISMISSAL header
-            dismissal_header = None
-            for tag in soup.find_all(['h1', 'h2', 'h3', 'h4', 'strong', 'p']):
-                text = tag.get_text(strip=True)
-                if "dismissed for want of prosecution" in text.lower():
-                    dismissal_header = tag
-                    print("✅ Located DISMISSAL header paragraph")
-                    print("Raw header text:", text[:500])
-                    break
+            # === LIST EVERY TABLE ON THE PAGE ===
+            tables = soup.find_all('table')
+            print(f"Total tables found on the page: {len(tables)}\n")
 
-            if not dismissal_header:
-                print("DISMISSAL header not found.")
-                return
-
-            # Try the next 3 tables after the header
-            target_table = None
-            for i in range(3):
-                candidate = dismissal_header.find_next('table')
-                if candidate:
-                    header_row = candidate.find('tr')
-                    headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])] if header_row else []
-                    print(f"Table {i} after header — Headers: {headers}")
-                    if 'Published' in headers and 'Decided' in headers:
-                        target_table = candidate
-                        print(f"✅ Found correct DISMISSAL table with headers: {headers}")
-                        break
-                    dismissal_header = candidate  # move forward for next try
-
-            if not target_table:
-                print("Could not find table with 'Published' and 'Decided' columns after the header.")
-                return
-
-            # === EXTRACTION ===
-            entries = []
-            rows = target_table.find_all('tr')[1:]
-
-            for r in rows:
-                cells = r.find_all(['th', 'td'])
-                if len(cells) < 4:
-                    continue
-
-                number = cells[0].get_text(strip=True)
-                title = cells[1].get_text(strip=True)
-                published = cells[2].get_text(strip=True)
-                decided = cells[3].get_text(strip=True)
-
-                mc_match = re.search(r'(MC-\d{4,8}(?:-[A-Z])?|FF-\d+)', number, re.I)
-                if not mc_match:
-                    continue
-                mc_number = mc_match.group(1)
-
-                company_name = title.split(' - ', 1)[0] if ' - ' in title else title
-
-                entry = {
-                    "mc_number": mc_number,
-                    "company_name": company_name,
-                    "published_date": published,
-                    "decided_date": decided
-                }
-                entries.append(entry)
-                print(f"EXTRACTED → {mc_number} | {company_name} | Published: {published} | Decided: {decided}")
-
-            print(f"\n✅ Found {len(entries)} leads in the DISMISSAL section.")
-            if entries:
-                print("\nMC Number | Company Name | Published Date | Decided Date")
-                print("-" * 100)
-                for e in entries:
-                    print(f"{e['mc_number']} | {e['company_name']} | {e['published_date']} | {e['decided_date']}")
-            else:
-                print("No dismissal leads found today.")
+            for i, table in enumerate(tables):
+                header_row = table.find('tr')
+                headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])] if header_row else ["(no header row)"]
+                row_count = len(table.find_all('tr'))
+                print(f"Table {i} — Headers: {headers} | Total rows: {row_count}")
 
         except Exception as e:
             print(f"Error: {str(e)}")
