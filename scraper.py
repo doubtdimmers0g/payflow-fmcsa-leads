@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import re
 
 def main():
-    print("TEST MODE: FMCSA HTML Detail scraper - GRANT DECISION NOTICES only (FINAL + Filter)")
+    print("TEST MODE: FMCSA HTML Detail scraper - GRANT DECISION NOTICES only (FINAL FILTERED)")
     print("No sheet writes - console only for validation\n")
 
     # Central Time lock (Houston)
@@ -68,15 +68,10 @@ def main():
                 print("Could not find detailed GRANT table.")
                 return
 
-            # === EXTRACTION WITH STRICT AUTHORITY FILTER ===
+            # === FILTERED EXTRACTION (only your two target authority types) ===
             entries = []
             rows = target_table.find_all('tr')[1:]
             current_authority = ""
-
-            target_phrases = [
-                "Interstate common carrier (except household goods)",
-                "Interstate contract carrier (except household goods)"
-            ]
 
             for r in rows:
                 cells = r.find_all(['th', 'td'])
@@ -84,8 +79,11 @@ def main():
                 # Authority header row
                 if len(cells) == 1:
                     text = cells[0].get_text(strip=True).rstrip(':').strip()
-                    if any(phrase in text for phrase in target_phrases) or ("common carrier" in text.lower() and "household goods" not in text.lower()):
+                    # Flexible check for your exact target types
+                    if ("except household goods" in text and 
+                        ("common carrier" in text.lower() or "contract carrier" in text.lower())):
                         current_authority = text
+                        print(f"✅ Matched target authority: {current_authority}")
                     continue
 
                 # Data row
@@ -112,8 +110,8 @@ def main():
                 phone_match = re.search(r'Phone:\s*([\(\)\d\s-]+)', rep_text, re.I)
                 phone = phone_match.group(1).strip() if phone_match else "N/A"
 
-                # STRICT FILTER - only keep the two authority types you want
-                if current_authority and any(ta in current_authority for ta in target_phrases):
+                # ONLY keep if we have a matching authority
+                if current_authority:
                     entry = {
                         "mc": mc,
                         "name": name,
@@ -123,7 +121,7 @@ def main():
                         "authority_type": current_authority
                     }
                     entries.append(entry)
-                    print(f"EXTRACTED → {mc} | {name} | {address[:40]}... | {filed_date} | {phone} | {current_authority}")
+                    print(f"EXTRACTED → {mc} | {name} | {address[:40]}... | {filed_date} | {phone}")
 
             print(f"\n✅ Found {len(entries)} leads matching your target authority types.")
             if entries:
@@ -132,7 +130,7 @@ def main():
                 for e in entries:
                     print(f"{e['mc']} | {e['name']} | {e['address']} | {e['filed_date']} | {e['phone']} | {e['authority_type']}")
             else:
-                print("No leads matched your target authority types today (normal on some days).")
+                print("No target authority leads today (the filter worked — we'll catch them when they post).")
 
         except Exception as e:
             print(f"Error: {str(e)}")
