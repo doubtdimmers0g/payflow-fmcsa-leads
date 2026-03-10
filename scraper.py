@@ -124,10 +124,14 @@ def main():
 
             print(f"Found {len(entries)} leads in FITNESS-ONLY table.")
 
-            # === Google Sheets + Dedupe (modern google-auth) ===
+            # === Google Sheets + Dedupe (fixed scopes) ===
             if entries:
                 creds_info = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
-                creds = service_account.Credentials.from_service_account_info(creds_info)
+                scopes = [
+                    "https://www.googleapis.com/auth/spreadsheets",
+                    "https://www.googleapis.com/auth/drive"
+                ]
+                creds = service_account.Credentials.from_service_account_info(creds_info, scopes=scopes)
                 client = gspread.authorize(creds)
                 sheet = client.open_by_key(os.getenv("SHEET_ID")).sheet1
 
