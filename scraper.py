@@ -3,28 +3,29 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import re
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import os
 
 def main():
-    print("TEST MODE: FMCSA GRANT - FITNESS-ONLY table + Rep Name (FIRST 10 LEADS ONLY)")
-    print("No sheet writes - console only for validation\n")
-
-    # Central Time lock (Houston)
+    print("🚀 FMCSA GRANT Scraper - PRODUCTION (FITNESS-ONLY + Rep Name)")
     central = ZoneInfo("America/Chicago")
-    today_str = datetime.now(central).strftime('%m/%d/%Y')
-    print(f"Today in Central Time: {today_str}\n")
+    today = datetime.now(central)
+    today_str = today.strftime('%m/%d/%Y')
+    run_date = today.strftime('%Y-%m-%d')
+    print(f"Running for: {today_str} (run_date = {run_date})\n")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
         page = browser.new_page()
 
         try:
-            print("Loading selection page...")
             page.goto("https://li-public.fmcsa.dot.gov/LIVIEW/PKG_REGISTER.prc_reg_list", timeout=60000)
             page.wait_for_load_state("networkidle")
 
             row = page.locator(f"tr:has-text('{today_str}')")
             if row.count() == 0:
-                print("Today's register row not found.")
+                print("No register row today.")
                 return
 
             detail_button = row.locator("input[value='HTML Detail']")
@@ -32,15 +33,12 @@ def main():
                 print("HTML Detail button not found.")
                 return
 
-            print("Navigating to HTML Detail page...")
             with page.expect_navigation(timeout=60000):
                 detail_button.click()
             page.wait_for_load_state("networkidle", timeout=60000)
-            print("✅ HTML Detail page loaded successfully\n")
 
             soup = BeautifulSoup(page.content(), 'html.parser')
 
-            # Locate GRANT DECISION NOTICES section
             grant_header = None
             for tag in soup.find_all(['h1', 'h2', 'h3', 'h4', 'strong', 'p']):
                 if re.search(r'GRANT DECISION NOTICES', tag.get_text(strip=True), re.I):
@@ -48,10 +46,10 @@ def main():
                     break
 
             if not grant_header:
-                print("Could not locate GRANT section.")
+                print("GRANT section not found.")
                 return
 
-            # Find the SECOND matching table (FITNESS-ONLY)
+            # Use the SECOND matching table (FITNESS-ONLY)
             target_table = None
             count = 0
             for table in grant_header.find_all_next('table'):
@@ -62,14 +60,13 @@ def main():
                         count += 1
                         if count == 2:
                             target_table = table
-                            print(f"✅ Using FITNESS-ONLY table with headers: {headers}")
                             break
 
             if not target_table:
-                print("Could not find FITNESS-ONLY table.")
+                print("FITNESS-ONLY table not found.")
                 return
 
-            # === EXTRACTION - FIRST 10 LEADS ONLY + Rep Name ===
+            # Extract leads
             entries = []
             rows = target_table.find_all('tr')[1:]
             current_authority = ""
@@ -103,42 +100,30 @@ def main():
                 name = applicant_lines[0] if applicant_lines else ""
                 address = " ".join(applicant_lines[1:]) if len(applicant_lines) > 1 else ""
 
-                # Representative name = first line of the Rep column
                 rep_lines = [line.strip() for line in rep_text.splitlines() if line.strip()]
                 rep_name = rep_lines[0] if rep_lines else "N/A"
 
                 phone_match = re.search(r'Phone:\s*([\(\)\d\s-]+)', rep_text, re.I)
                 phone = phone_match.group(1).strip() if phone_match else "N/A"
+                phone = re.sub(r'\D', '', phone)
+                if len(phone) == 10:
+                    phone = f"({phone[:3]}) {phone[3:6]}-{phone[6:]}"
 
                 entry = {
-                    "mc": mc,
-                    "name": name,
-                    "address": address,
+                    "run_date": run_date,
+                    "mc_number": mc,
+                    "company_name": name,
+                    "authority_type": current_authority,
                     "filed_date": filed_date,
-                    "phone": phone,
+                    "address": address,
                     "rep_name": rep_name,
-                    "authority_type": current_authority
+                    "phone": phone
                 }
                 entries.append(entry)
-                print(f"EXTRACTED → {mc} | {name} | Rep: {rep_name} | {filed_date} | {phone} | {current_authority}")
 
-                if len(entries) >= 10:  # <--- LIMIT TO FIRST 10 FOR TESTING
-                    print("\n→ Reached test limit of 10 leads. Stopping extraction.")
-                    break
+            print(f"Found {len(entries)} leads in FITNESS-ONLY table.")
 
-            print(f"\n✅ Found {len(entries)} leads (limited to first 10 for testing).")
+            # === Google Sheets + Dedupe ===
             if entries:
-                print("\nMC Number | Company Name | Rep Name | Address | Filed Date | Phone | Authority Type")
-                print("-" * 160)
-                for e in entries:
-                    print(f"{e['mc']} | {e['name']} | {e['rep_name']} | {e['address']} | {e['filed_date']} | {e['phone']} | {e['authority_type']}")
-            else:
-                print("No leads found today.")
-
-        except Exception as e:
-            print(f"Error: {str(e)}")
-        finally:
-            browser.close()
-
-if __name__ == "__main__":
-    main()
+                scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+                creds
