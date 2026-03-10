@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import re
 
 def main():
-    print("TEST MODE: FMCSA DISMISSAL Scraper")
+    print("TEST MODE: FMCSA DISMISSAL Scraper - Precise Table Targeting")
     print("No sheet writes - console only for validation\n")
 
     central = ZoneInfo("America/Chicago")
@@ -51,15 +51,22 @@ def main():
                 print("DISMISSAL section not found on this page.")
                 return
 
-            # Find the table right after the DISMISSAL header
-            target_table = dismissal_header.find_next('table')
+            # === PRECISE TABLE TARGETING ===
+            target_table = None
+            for table in dismissal_header.find_all_next('table'):
+                header_row = table.find('tr')
+                if header_row:
+                    headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])]
+                    if 'Number' in headers and 'Title' in headers and 'Published' in headers and 'Decided' in headers:
+                        target_table = table
+                        print(f"✅ Found exact DISMISSAL table with headers: {headers}")
+                        break
+
             if not target_table:
-                print("DISMISSAL table not found.")
+                print("Could not find the DISMISSAL table with 'Published' and 'Decided' columns.")
                 return
 
-            print(f"✅ Found DISMISSAL table with headers: {[cell.get_text(strip=True) for cell in target_table.find('tr').find_all(['th', 'td'])]}")
-
-            # Extract
+            # === EXTRACTION ===
             entries = []
             rows = target_table.find_all('tr')[1:]
 
