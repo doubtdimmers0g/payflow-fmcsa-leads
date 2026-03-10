@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import re
 
 def main():
-    print("TEST MODE: FMCSA DISMISSAL Scraper - Debug After Header")
+    print("TEST MODE: FMCSA DISMISSAL Scraper - Using exact header text")
     print("No sheet writes - console only for validation\n")
 
     central = ZoneInfo("America/Chicago")
@@ -39,52 +39,29 @@ def main():
 
             soup = BeautifulSoup(page.content(), 'html.parser')
 
-            # Target DISMISSAL section
+            # === TARGET THE EXACT DISMISSAL HEADER TEXT ===
             dismissal_header = None
             for tag in soup.find_all(['h1', 'h2', 'h3', 'h4', 'strong', 'p']):
-                if re.search(r'DISMISSAL', tag.get_text(strip=True), re.I):
+                text = tag.get_text(strip=True)
+                if "dismissed for want of prosecution effective 60 days from today" in text:
                     dismissal_header = tag
-                    print("✅ Located DISMISSAL section header")
+                    print("✅ Located exact DISMISSAL header paragraph")
                     break
 
             if not dismissal_header:
-                print("DISMISSAL section not found.")
+                print("DISMISSAL header paragraph not found.")
                 return
 
-            # === NEW DEBUG: What comes right after the DISMISSAL header ===
-            print("\n=== RAW TEXT AFTER DISMISSAL HEADER (first 2000 chars) ===")
-            next_content = dismissal_header.find_next()
-            if next_content:
-                print(next_content.get_text(separator='\n', strip=True)[:2000])
-            else:
-                print("No content after header")
-
-            print("\n=== TABLES AFTER DISMISSAL HEADER ===")
-            tables_after = dismissal_header.find_all_next('table')
-            print(f"Total tables after DISMISSAL header: {len(tables_after)}")
-
-            for idx, table in enumerate(tables_after):
-                header_row = table.find('tr')
-                headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])] if header_row else ["(no header)"]
-                row_count = len(table.find_all('tr'))
-                print(f"Table {idx} — Headers: {headers} | Total rows: {row_count}")
-
-            # Find the table with 'Published' and 'Decided'
-            target_table = None
-            for table in dismissal_header.find_all_next('table'):
-                header_row = table.find('tr')
-                if header_row:
-                    headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])]
-                    if 'Published' in headers and 'Decided' in headers:
-                        target_table = table
-                        print(f"✅ Found correct DISMISSAL table with headers: {headers}")
-                        break
-
+            # Find the table immediately after this header
+            target_table = dismissal_header.find_next('table')
             if not target_table:
-                print("Could not find table with 'Published' and 'Decided' columns.")
+                print("Could not find table after the DISMISSAL header.")
                 return
 
-            # Extraction (same as before)
+            headers = [cell.get_text(strip=True) for cell in target_table.find('tr').find_all(['th', 'td'])]
+            print(f"✅ Found table after DISMISSAL header with headers: {headers}")
+
+            # === EXTRACTION ===
             entries = []
             rows = target_table.find_all('tr')[1:]
 
@@ -115,6 +92,13 @@ def main():
                 print(f"EXTRACTED → {mc_number} | {company_name} | Published: {published} | Decided: {decided}")
 
             print(f"\n✅ Found {len(entries)} leads in the DISMISSAL section.")
+            if entries:
+                print("\nMC Number | Company Name | Published Date | Decided Date")
+                print("-" * 100)
+                for e in entries:
+                    print(f"{e['mc_number']} | {e['company_name']} | {e['published_date']} | {e['decided_date']}")
+            else:
+                print("No dismissal leads found today.")
 
         except Exception as e:
             print(f"Error: {str(e)}")
