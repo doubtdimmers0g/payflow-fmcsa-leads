@@ -75,33 +75,27 @@ def main():
                     while j < 15 and i + j < len(lines):
                         next_line = lines[i + j]
 
-                        # Date (first mm/dd/yyyy after MC)
-                        if not date_str:
-                            date_match = re.search(r'\d{2}/\d{2}/\d{4}', next_line)
-                            if date_match:
-                                date_str = date_match.group(0)
+                        # Date (mm/dd/yyyy)
+                        date_match = re.search(r'\d{2}/\d{2}/\d{4}', next_line)
+                        if date_match and not date_str:
+                            date_str = date_match.group(0)
 
-                        # Company Name - first substantial line after MC/date, stop before street number
+                        # Name - first substantial line after MC/date, stop before street number
                         if len(next_line) > 10 and not date_match and not re.search(r'^\d{1,5}\s', next_line):
                             if not name:
                                 name = next_line.strip()
-                                print(f"Name candidate: {name}")
 
                         j += 1
 
-                    # Skip if no name or date
-                    if not name or not date_str:
-                        i += 1
-                        continue
-
-                    entry = {
-                        "mc": mc,
-                        "date": date_str,
-                        "name": name,
-                        "authority": current_authority
-                    }
-                    entries.append(entry)
-                    print(f"EXTRACTED: {mc} | Date: {date_str} | Name: {name} | Authority: {current_authority[:80]}...")
+                    if name and date_str:
+                        entry = {
+                            "mc": mc,
+                            "date": date_str,
+                            "name": name,
+                            "authority": current_authority
+                        }
+                        entries.append(entry)
+                        print(f"EXTRACTED: {mc} | Date: {date_str} | Name: {name} | Authority: {current_authority[:80]}...")
 
                     if len(entries) >= 10:
                         break
@@ -116,7 +110,7 @@ def main():
                 for e in entries:
                     print(f"{e['mc']} | {e['date']} | {e['name']} | {e['authority']}")
             else:
-                print("No valid entries found - check MC/date/name detection.")
+                print("No valid entries found - check if MC/date/name lines are being hit.")
 
         except Exception as e:
             print(f"Playwright error: {str(e)}")
