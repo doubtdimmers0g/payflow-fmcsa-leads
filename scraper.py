@@ -1,13 +1,17 @@
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
+import re  # added so the MC check doesn't crash later
 
 def main():
     print("TEST MODE: FMCSA HTML Detail scraper - extracting MC, Date, Company Name, Authority")
     print("No sheet writes - console only for validation")
 
-    today = date.today()
-    today_str = today.strftime('%m/%d/%Y')  # e.g., 03/09/2026
+    # Central Time (Houston) so it always matches your local day
+    central = ZoneInfo("America/Chicago")
+    today_str = datetime.now(central).strftime('%m/%d/%Y')  # e.g., 03/09/2026
+    print(f"Today in Central Time (your local date): {today_str}")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
@@ -44,12 +48,10 @@ def main():
             ]
 
             entries = []
-            # Find all authority cells
             authority_cells = soup.find_all('td', attrs={'colspan': '4'})
             for cell in authority_cells:
                 authority_text = cell.get_text(strip=True)
                 if any(p in authority_text for p in target_phrases):
-                    # Get parent row
                     row = cell.find_parent('tr')
                     if not row:
                         continue
@@ -58,17 +60,14 @@ def main():
                     if len(cells) < 3:
                         continue
 
-                    # MC (first cell)
                     mc_cell = cells[0]
                     mc = mc_cell.get_text(strip=True)
                     if not re.match(r'MC-180\d{4,5}(?:-[A-Z])?', mc, re.I):
                         continue
 
-                    # Date (second cell)
                     date_cell = cells[1]
                     date_str = date_cell.get_text(strip=True)
 
-                    # Company Name (first div in third cell)
                     name_cell = cells[2]
                     name_div = name_cell.find('div')
                     name = name_div.get_text(strip=True) if name_div else "N/A"
