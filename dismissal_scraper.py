@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import re
 
 def main():
-    print("TEST MODE: FMCSA DISMISSAL Scraper - Using exact header text")
+    print("TEST MODE: FMCSA DISMISSAL Scraper - Flexible Header + Table Search")
     print("No sheet writes - console only for validation\n")
 
     central = ZoneInfo("America/Chicago")
@@ -39,27 +39,37 @@ def main():
 
             soup = BeautifulSoup(page.content(), 'html.parser')
 
-            # === TARGET THE EXACT DISMISSAL HEADER TEXT ===
+            # Flexible search for DISMISSAL header
             dismissal_header = None
             for tag in soup.find_all(['h1', 'h2', 'h3', 'h4', 'strong', 'p']):
                 text = tag.get_text(strip=True)
-                if "dismissed for want of prosecution effective 60 days from today" in text:
+                if "dismissed for want of prosecution" in text.lower():
                     dismissal_header = tag
-                    print("✅ Located exact DISMISSAL header paragraph")
+                    print("✅ Located DISMISSAL header paragraph")
+                    print("Raw header text:", text[:500])
                     break
 
             if not dismissal_header:
-                print("DISMISSAL header paragraph not found.")
+                print("DISMISSAL header not found.")
                 return
 
-            # Find the table immediately after this header
-            target_table = dismissal_header.find_next('table')
+            # Try the next 3 tables after the header
+            target_table = None
+            for i in range(3):
+                candidate = dismissal_header.find_next('table')
+                if candidate:
+                    header_row = candidate.find('tr')
+                    headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])] if header_row else []
+                    print(f"Table {i} after header — Headers: {headers}")
+                    if 'Published' in headers and 'Decided' in headers:
+                        target_table = candidate
+                        print(f"✅ Found correct DISMISSAL table with headers: {headers}")
+                        break
+                    dismissal_header = candidate  # move forward for next try
+
             if not target_table:
-                print("Could not find table after the DISMISSAL header.")
+                print("Could not find table with 'Published' and 'Decided' columns after the header.")
                 return
-
-            headers = [cell.get_text(strip=True) for cell in target_table.find('tr').find_all(['th', 'td'])]
-            print(f"✅ Found table after DISMISSAL header with headers: {headers}")
 
             # === EXTRACTION ===
             entries = []
