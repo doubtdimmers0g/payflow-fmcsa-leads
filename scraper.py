@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import re
 
 def main():
-    print("TEST MODE: FMCSA GRANT - ALL Leads + Authority Type + Rep Name")
+    print("TEST MODE: FMCSA GRANT - FITNESS-ONLY table + Rep Name (FIRST 10 LEADS ONLY)")
     print("No sheet writes - console only for validation\n")
 
     # Central Time lock (Houston)
@@ -69,7 +69,7 @@ def main():
                 print("Could not find FITNESS-ONLY table.")
                 return
 
-            # === EXTRACTION - ALL leads + Authority Type + Rep Name ===
+            # === EXTRACTION - FIRST 10 LEADS ONLY + Rep Name ===
             entries = []
             rows = target_table.find_all('tr')[1:]
             current_authority = ""
@@ -103,7 +103,7 @@ def main():
                 name = applicant_lines[0] if applicant_lines else ""
                 address = " ".join(applicant_lines[1:]) if len(applicant_lines) > 1 else ""
 
-                # NEW: Representative name = first line of the Rep column
+                # Representative name = first line of the Rep column
                 rep_lines = [line.strip() for line in rep_text.splitlines() if line.strip()]
                 rep_name = rep_lines[0] if rep_lines else "N/A"
 
@@ -122,7 +122,11 @@ def main():
                 entries.append(entry)
                 print(f"EXTRACTED → {mc} | {name} | Rep: {rep_name} | {filed_date} | {phone} | {current_authority}")
 
-            print(f"\n✅ Found {len(entries)} leads (all authority types).")
+                if len(entries) >= 10:  # <--- LIMIT TO FIRST 10 FOR TESTING
+                    print("\n→ Reached test limit of 10 leads. Stopping extraction.")
+                    break
+
+            print(f"\n✅ Found {len(entries)} leads (limited to first 10 for testing).")
             if entries:
                 print("\nMC Number | Company Name | Rep Name | Address | Filed Date | Phone | Authority Type")
                 print("-" * 160)
