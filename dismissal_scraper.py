@@ -95,4 +95,31 @@ def main():
 
                 number = cells[0].get_text(strip=True)
                 title = cells[1].get_text(strip=True)
-                published =
+                published = cells[2].get_text(strip=True)
+                decided = cells[3].get_text(strip=True)
+
+                mc_match = re.search(r'(MC-\d{4,8}(?:-[A-Z])?|FF-\d+)', number, re.I)
+                if not mc_match:
+                    continue
+                mc_number = mc_match.group(1)
+
+                company_name = title.split(' - ', 1)[0] if ' - ' in title else title
+
+                entry = {
+                    "mc_number": mc_number,
+                    "company_name": company_name,
+                    "published_date": published,
+                    "decided_date": decided
+                }
+                entries.append(entry)
+                print(f"EXTRACTED → {mc_number} | {company_name} | Published: {published} | Decided: {decided}")
+
+            print(f"\n✅ Found {len(entries)} leads in the DISMISSAL section.")
+
+        except Exception as e:
+            print(f"Error: {str(e)}")
+        finally:
+            browser.close()
+
+if __name__ == "__main__":
+    main()
