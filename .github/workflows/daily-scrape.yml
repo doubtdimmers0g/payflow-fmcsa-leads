@@ -2,7 +2,7 @@ name: Daily FMCSA Active Leads
 
 on:
   schedule:
-    - cron: '0 12 * * *'  # 6AM CST
+    - cron: '0 17 * * 1-5'  # 12:00 PM Central / 17:00 UTC, Monday–Friday
   workflow_dispatch:
 
 jobs:
