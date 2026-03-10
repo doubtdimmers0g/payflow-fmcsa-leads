@@ -5,9 +5,10 @@ from zoneinfo import ZoneInfo
 import re
 
 def main():
-    print("TEST MODE: FMCSA GRANT - FITNESS-ONLY section ONLY")
+    print("TEST MODE: FMCSA GRANT - ALL Leads + Authority Type")
     print("No sheet writes - console only for validation\n")
 
+    # Central Time lock (Houston)
     central = ZoneInfo("America/Chicago")
     today_str = datetime.now(central).strftime('%m/%d/%Y')
     print(f"Today in Central Time: {today_str}\n")
@@ -39,27 +40,34 @@ def main():
 
             soup = BeautifulSoup(page.content(), 'html.parser')
 
-            # === TARGET ONLY THE FITNESS-ONLY SECTION ===
-            fitness_header = None
+            # Locate GRANT DECISION NOTICES section
+            grant_header = None
             for tag in soup.find_all(['h1', 'h2', 'h3', 'h4', 'strong', 'p']):
-                if re.search(r'FITNESS-ONLY', tag.get_text(strip=True), re.I):
-                    fitness_header = tag
-                    print("✅ Located FITNESS-ONLY section header")
+                if re.search(r'GRANT DECISION NOTICES', tag.get_text(strip=True), re.I):
+                    grant_header = tag
+                    print("✅ Located GRANT DECISION NOTICES section header")
                     break
 
-            if not fitness_header:
-                print("FITNESS-ONLY section not found on this page.")
+            if not grant_header:
+                print("Could not locate GRANT section.")
                 return
 
-            # Find the table immediately after the FITNESS-ONLY header
-            target_table = fitness_header.find_next('table')
+            # Find detailed table
+            target_table = None
+            for table in grant_header.find_all_next('table'):
+                header_row = table.find('tr')
+                if header_row:
+                    headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])]
+                    if 'Filed' in headers and 'Applicant' in headers:
+                        target_table = table
+                        print(f"✅ Found detailed GRANT table with columns: {headers}")
+                        break
+
             if not target_table:
-                print("FITNESS-ONLY table not found.")
+                print("Could not find detailed GRANT table.")
                 return
 
-            print(f"✅ Found FITNESS-ONLY table with columns: {[cell.get_text(strip=True) for cell in target_table.find('tr').find_all(['th', 'td'])]}")
-
-            # === Extract leads from FITNESS-ONLY table ===
+            # === EXTRACTION - ALL leads + Authority Type ===
             entries = []
             rows = target_table.find_all('tr')[1:]
             current_authority = ""
@@ -67,12 +75,14 @@ def main():
             for r in rows:
                 cells = r.find_all(['th', 'td'])
 
+                # Authority header row
                 if len(cells) == 1:
                     text = cells[0].get_text(strip=True).rstrip(':').strip()
                     if "Interstate" in text or "carrier" in text.lower():
                         current_authority = text
                     continue
 
+                # Data row
                 if len(cells) != 4:
                     continue
 
@@ -105,16 +115,16 @@ def main():
                     "authority_type": current_authority
                 }
                 entries.append(entry)
-                print(f"EXTRACTED (FITNESS-ONLY) → {mc} | {name} | {address[:40]}... | {filed_date} | {phone} | {current_authority}")
+                print(f"EXTRACTED → {mc} | {name} | {address[:40]}... | {filed_date} | {phone} | {current_authority}")
 
-            print(f"\n✅ Found {len(entries)} leads in the FITNESS-ONLY section.")
+            print(f"\n✅ Found {len(entries)} leads (all authority types).")
             if entries:
                 print("\nMC Number | Company Name | Address | Filed Date | Phone | Authority Type")
                 print("-" * 140)
                 for e in entries:
                     print(f"{e['mc']} | {e['name']} | {e['address']} | {e['filed_date']} | {e['phone']} | {e['authority_type']}")
             else:
-                print("No leads in FITNESS-ONLY section today.")
+                print("No leads found today.")
 
         except Exception as e:
             print(f"Error: {str(e)}")
