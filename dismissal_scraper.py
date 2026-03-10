@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import re
 
 def main():
-    print("TEST MODE: FMCSA DISMISSAL Scraper - Table 14 Targeted")
+    print("TEST MODE: FMCSA DISMISSAL Scraper - MC- ONLY")
     print("No sheet writes - console only for validation\n")
 
     central = ZoneInfo("America/Chicago")
@@ -39,7 +39,7 @@ def main():
 
             soup = BeautifulSoup(page.content(), 'html.parser')
 
-            # Target the exact DISMISSAL table (Table 14 in today's structure)
+            # Target the exact DISMISSAL table
             target_table = None
             for table in soup.find_all('table'):
                 header_row = table.find('tr')
@@ -47,14 +47,14 @@ def main():
                     headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])]
                     if headers == ['Number', 'Title', 'Published', 'Decided']:
                         target_table = table
-                        print("✅ Found exact DISMISSAL table (Table 14)")
+                        print("✅ Found exact DISMISSAL table")
                         break
 
             if not target_table:
                 print("DISMISSAL table not found today.")
                 return
 
-            # === EXTRACTION ===
+            # === EXTRACTION + MC- ONLY FILTER ===
             entries = []
             rows = target_table.find_all('tr')[1:]
 
@@ -73,6 +73,9 @@ def main():
                     continue
                 mc_number = mc_match.group(1)
 
+                if not mc_number.startswith('MC-'):  # <-- This is the filter you asked for
+                    continue
+
                 company_name = title.split(' - ', 1)[0] if ' - ' in title else title
 
                 entry = {
@@ -84,14 +87,14 @@ def main():
                 entries.append(entry)
                 print(f"EXTRACTED → {mc_number} | {company_name} | Published: {published} | Decided: {decided}")
 
-            print(f"\n✅ Found {len(entries)} leads in the DISMISSAL section.")
+            print(f"\n✅ Found {len(entries)} MC- dismissal leads.")
             if entries:
                 print("\nMC Number | Company Name | Published Date | Decided Date")
                 print("-" * 100)
                 for e in entries:
                     print(f"{e['mc_number']} | {e['company_name']} | {e['published_date']} | {e['decided_date']}")
             else:
-                print("No dismissal leads found today.")
+                print("No MC- dismissal leads found today.")
 
         except Exception as e:
             print(f"Error: {str(e)}")
