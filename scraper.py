@@ -5,8 +5,8 @@ from zoneinfo import ZoneInfo
 import re
 
 def main():
-    print("TEST MODE: FMCSA GRANT - Fixed Authority Tracking")
-    print("No sheet writes - console only for validation\n")
+    print("TEST MODE: FMCSA GRANT - HEAVY AUTHORITY DEBUG")
+    print("No sheet writes - showing EVERY header the script sees\n")
 
     central = ZoneInfo("America/Chicago")
     today_str = datetime.now(central).strftime('%m/%d/%Y')
@@ -66,52 +66,57 @@ def main():
                 print("Could not find detailed GRANT table.")
                 return
 
-            # === ROBUST EXTRACTION WITH IMPROVED AUTHORITY TRACKING ===
+            # === HEAVY DEBUG LOOP ===
             entries = []
             rows = target_table.find_all('tr')[1:]
-            current_authority = ""
-
+            current_authority = "NONE"
             target_phrases = [
                 "Interstate common carrier (except household goods)",
                 "Interstate contract carrier (except household goods)"
             ]
 
-            for r in rows:
+            print("\n=== EVERY AUTHORITY HEADER THE SCRIPT SEES (exact text) ===")
+            for i, r in enumerate(rows):
                 cells = r.find_all(['th', 'td'])
 
-                # Authority header row
                 if len(cells) == 1:
                     text = cells[0].get_text(strip=True).rstrip(':').strip()
-                    if any(phrase in text for phrase in target_phrases):
-                        current_authority = text
-                        print(f"→ Matched target authority: {current_authority}")
+                    if text and ("Interstate" in text or "carrier" in text.lower()):
+                        print(f"Row {i+1} HEADER: '{text}'")
+                        if any(phrase in text for phrase in target_phrases):
+                            current_authority = text
+                            print(f"  → MATCHED TARGET AUTHORITY! Setting current to: {current_authority}")
+                        else:
+                            print(f"  → Non-target authority (skipped)")
                     continue
 
-                # Data row
                 if len(cells) != 4:
                     continue
 
                 mc_cell = cells[0].get_text(strip=True)
-                filed_text = cells[1].get_text(strip=True)
-                applicant_text = cells[2].get_text(separator='\n', strip=True)
-                rep_text = cells[3].get_text(separator='\n', strip=True)
-
                 mc_match = re.search(r'(MC-\d{4,8}(?:-[A-Z])?)', mc_cell, re.I)
                 if not mc_match:
                     continue
                 mc = mc_match.group(1)
 
-                date_match = re.search(r'(\d{2}/\d{2}/\d{4})', filed_text)
-                filed_date = date_match.group(1) if date_match else ""
-
-                applicant_lines = [line.strip() for line in applicant_text.splitlines() if line.strip()]
-                name = applicant_lines[0] if applicant_lines else ""
-                address = " ".join(applicant_lines[1:]) if len(applicant_lines) > 1 else ""
-
-                phone_match = re.search(r'Phone:\s*([\(\)\d\s-]+)', rep_text, re.I)
-                phone = phone_match.group(1).strip() if phone_match else "N/A"
+                print(f"Row {i+1} DATA MC: {mc} | Current authority active: '{current_authority}'")
 
                 if current_authority and any(phrase in current_authority for phrase in target_phrases):
+                    # extract full entry (same as before)
+                    filed_text = cells[1].get_text(strip=True)
+                    applicant_text = cells[2].get_text(separator='\n', strip=True)
+                    rep_text = cells[3].get_text(separator='\n', strip=True)
+
+                    date_match = re.search(r'(\d{2}/\d{2}/\d{4})', filed_text)
+                    filed_date = date_match.group(1) if date_match else ""
+
+                    applicant_lines = [line.strip() for line in applicant_text.splitlines() if line.strip()]
+                    name = applicant_lines[0] if applicant_lines else ""
+                    address = " ".join(applicant_lines[1:]) if len(applicant_lines) > 1 else ""
+
+                    phone_match = re.search(r'Phone:\s*([\(\)\d\s-]+)', rep_text, re.I)
+                    phone = phone_match.group(1).strip() if phone_match else "N/A"
+
                     entry = {
                         "mc": mc,
                         "name": name,
@@ -121,7 +126,7 @@ def main():
                         "authority_type": current_authority
                     }
                     entries.append(entry)
-                    print(f"EXTRACTED → {mc} | {name} | {address[:40]}... | {filed_date} | {phone} | {current_authority}")
+                    print(f"  → EXTRACTED TARGET LEAD: {mc} | {name}")
 
             print(f"\n✅ Found {len(entries)} leads matching your target authority types.")
             if entries:
@@ -130,7 +135,7 @@ def main():
                 for e in entries:
                     print(f"{e['mc']} | {e['name']} | {e['address']} | {e['filed_date']} | {e['phone']} | {e['authority_type']}")
             else:
-                print("No target authority leads today (filter is now accurate — we'll catch them when they post).")
+                print("No target leads extracted (the debug will show exactly why).")
 
         except Exception as e:
             print(f"Error: {str(e)}")
