@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import re
 
 def main():
-    print("TEST MODE: FMCSA HTML Detail scraper - GRANT DECISION NOTICES only (FINAL)")
+    print("TEST MODE: FMCSA HTML Detail scraper - GRANT DECISION NOTICES only (FINAL + Address)")
     print("No sheet writes - console only for validation\n")
 
     # Central Time lock (Houston)
@@ -68,13 +68,13 @@ def main():
                 print("Could not find detailed GRANT table.")
                 return
 
-            # === FINAL EXTRACTION: only 4-cell data rows ===
+            # === EXTRACTION with Address ===
             entries = []
-            rows = target_table.find_all('tr')[1:]  # skip header
+            rows = target_table.find_all('tr')[1:]
 
             for r in rows:
                 cells = r.find_all(['th', 'td'])
-                if len(cells) != 4:  # skip authority headers and blanks
+                if len(cells) != 4:
                     continue
 
                 mc_cell = cells[0].get_text(strip=True)
@@ -82,22 +82,18 @@ def main():
                 applicant_text = cells[2].get_text(separator='\n', strip=True)
                 rep_text = cells[3].get_text(separator='\n', strip=True)
 
-                # MC
                 mc_match = re.search(r'(MC-\d{4,8}(?:-[A-Z])?)', mc_cell, re.I)
                 if not mc_match:
                     continue
                 mc = mc_match.group(1)
 
-                # Filed date
                 date_match = re.search(r'(\d{2}/\d{2}/\d{4})', filed_text)
                 filed_date = date_match.group(1) if date_match else ""
 
-                # Applicant: name on first line, rest = address
                 applicant_lines = [line.strip() for line in applicant_text.splitlines() if line.strip()]
                 name = applicant_lines[0] if applicant_lines else ""
                 address = " ".join(applicant_lines[1:]) if len(applicant_lines) > 1 else ""
 
-                # Phone from rep cell
                 phone_match = re.search(r'Phone:\s*([\(\)\d\s-]+)', rep_text, re.I)
                 phone = phone_match.group(1).strip() if phone_match else "N/A"
 
@@ -109,14 +105,14 @@ def main():
                     "phone": phone
                 }
                 entries.append(entry)
-                print(f"EXTRACTED → {mc} | {name} | Filed: {filed_date} | Phone: {phone}")
+                print(f"EXTRACTED → {mc} | {name} | {address[:50]}... | {filed_date} | {phone}")
 
             print(f"\n✅ Found {len(entries)} new leads in the GRANT DECISION NOTICES detailed table.")
             if entries:
-                print("\nMC Number | Company Name | Filed Date | Phone")
-                print("-" * 70)
+                print("\nMC Number | Company Name | Address | Filed Date | Phone")
+                print("-" * 100)
                 for e in entries:
-                    print(f"{e['mc']} | {e['name']} | {e['filed_date']} | {e['phone']}")
+                    print(f"{e['mc']} | {e['name']} | {e['address']} | {e['filed_date']} | {e['phone']}")
             else:
                 print("No grants found (quiet day).")
 
