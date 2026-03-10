@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import re
 
 def main():
-    print("TEST MODE: FMCSA DISMISSAL Scraper - Targeting 'Published' + 'Decided'")
+    print("TEST MODE: FMCSA DISMISSAL Scraper - Debug After Header")
     print("No sheet writes - console only for validation\n")
 
     central = ZoneInfo("America/Chicago")
@@ -51,7 +51,25 @@ def main():
                 print("DISMISSAL section not found.")
                 return
 
-            # Find the table that has BOTH 'Published' and 'Decided' columns
+            # === NEW DEBUG: What comes right after the DISMISSAL header ===
+            print("\n=== RAW TEXT AFTER DISMISSAL HEADER (first 2000 chars) ===")
+            next_content = dismissal_header.find_next()
+            if next_content:
+                print(next_content.get_text(separator='\n', strip=True)[:2000])
+            else:
+                print("No content after header")
+
+            print("\n=== TABLES AFTER DISMISSAL HEADER ===")
+            tables_after = dismissal_header.find_all_next('table')
+            print(f"Total tables after DISMISSAL header: {len(tables_after)}")
+
+            for idx, table in enumerate(tables_after):
+                header_row = table.find('tr')
+                headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])] if header_row else ["(no header)"]
+                row_count = len(table.find_all('tr'))
+                print(f"Table {idx} — Headers: {headers} | Total rows: {row_count}")
+
+            # Find the table with 'Published' and 'Decided'
             target_table = None
             for table in dismissal_header.find_all_next('table'):
                 header_row = table.find('tr')
@@ -63,10 +81,10 @@ def main():
                         break
 
             if not target_table:
-                print("Could not find table with both 'Published' and 'Decided' columns.")
+                print("Could not find table with 'Published' and 'Decided' columns.")
                 return
 
-            # === EXTRACTION ===
+            # Extraction (same as before)
             entries = []
             rows = target_table.find_all('tr')[1:]
 
@@ -77,38 +95,4 @@ def main():
 
                 number = cells[0].get_text(strip=True)
                 title = cells[1].get_text(strip=True)
-                published = cells[2].get_text(strip=True)
-                decided = cells[3].get_text(strip=True)
-
-                mc_match = re.search(r'(MC-\d{4,8}(?:-[A-Z])?|FF-\d+)', number, re.I)
-                if not mc_match:
-                    continue
-                mc_number = mc_match.group(1)
-
-                company_name = title.split(' - ', 1)[0] if ' - ' in title else title
-
-                entry = {
-                    "mc_number": mc_number,
-                    "company_name": company_name,
-                    "published_date": published,
-                    "decided_date": decided
-                }
-                entries.append(entry)
-                print(f"EXTRACTED → {mc_number} | {company_name} | Published: {published} | Decided: {decided}")
-
-            print(f"\n✅ Found {len(entries)} leads in the DISMISSAL section.")
-            if entries:
-                print("\nMC Number | Company Name | Published Date | Decided Date")
-                print("-" * 100)
-                for e in entries:
-                    print(f"{e['mc_number']} | {e['company_name']} | {e['published_date']} | {e['decided_date']}")
-            else:
-                print("No dismissal leads found today.")
-
-        except Exception as e:
-            print(f"Error: {str(e)}")
-        finally:
-            browser.close()
-
-if __name__ == "__main__":
-    main()
+                published =
