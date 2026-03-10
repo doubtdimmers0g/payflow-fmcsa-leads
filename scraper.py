@@ -1,6 +1,6 @@
 from playwright.sync_api import sync_playwright
-from bs4 import BeautifulSoup, NavigableString
-from datetime import date, datetime
+from bs4 import BeautifulSoup
+from datetime import datetime
 from zoneinfo import ZoneInfo
 import re
 
@@ -8,7 +8,7 @@ def main():
     print("TEST MODE: FMCSA HTML Detail scraper - extracting MC, Date, Company Name, Authority")
     print("No sheet writes - console only for validation")
 
-    # Central Time (Houston) lock
+    # Central Time lock (Houston)
     central = ZoneInfo("America/Chicago")
     today_str = datetime.now(central).strftime('%m/%d/%Y')
     print(f"Today in Central Time (your local date): {today_str}")
@@ -42,50 +42,45 @@ def main():
             html = page.content()
             soup = BeautifulSoup(html, 'html.parser')
 
-            # === NEW DEBUG SECTION - this is what will show us the new structure ===
-            print("\n=== DEBUG: PAGE TITLE ===")
-            print(soup.title.get_text(strip=True) if soup.title else "No title")
-
-            print("\n=== DEBUG: TABLES FOUND ===")
+            # === UPGRADED DEBUG: Find the REAL data tables with MC numbers ===
+            print("\n=== DEBUG: TABLES WITH MC NUMBERS (the ones we care about) ===")
             tables = soup.find_all('table')
-            print(f"Total tables on page: {len(tables)}")
+            data_tables_found = 0
+            for i, table in enumerate(tables):
+                mc_matches = table.find_all(string=re.compile(r'MC-\d{4,8}', re.I))
+                if len(mc_matches) > 5:  # only tables with real data
+                    data_tables_found += 1
+                    print(f"\nTable {i+1} (of {len(tables)}) — {len(mc_matches)} MCs found")
+                    rows = table.find_all('tr')
+                    print(f"  Total rows: {len(rows)}")
 
-            print("\n=== DEBUG: AUTHORITY PHRASES SEARCH ===")
-            target_phrases = [
-                "Interstate common carrier (except household goods)",
-                "Interstate contract carrier (except household goods)"
-            ]
-            for phrase in target_phrases:
-                matches = soup.find_all(string=re.compile(phrase, re.I))
-                print(f"Matches for '{phrase}': {len(matches)}")
-                for m in matches[:2]:
-                    print(f"  → {m.strip()[:150]}...")
+                    # Header row
+                    if rows:
+                        header_cells = [cell.get_text(strip=True) for cell in rows[0].find_all(['th', 'td'])]
+                        print(f"  HEADER: {header_cells[:10]}...")
 
-            print("\n=== DEBUG: MC NUMBERS FOUND ANYWHERE ===")
-            mc_matches = soup.find_all(string=re.compile(r'MC-\d{4,8}', re.I))
-            print(f"Found {len(mc_matches)} potential MC numbers")
-            for m in mc_matches[:5]:
-                print(f"  → {m.strip()}")
+                    # Sample data rows (first 3 that have MC)
+                    sample_count = 0
+                    for r in rows[1:]:
+                        cells = [cell.get_text(strip=True) for cell in r.find_all(['th', 'td'])]
+                        if any(re.search(r'MC-\d{4,8}', c, re.I) for c in cells):
+                            print(f"  SAMPLE ROW: {cells[:8]}...")
+                            sample_count += 1
+                            if sample_count >= 3:
+                                break
 
-            print("\n=== DEBUG: SAMPLE TABLE ROWS (first 3 tables) ===")
-            for i, table in enumerate(tables[:3]):
-                rows = table.find_all('tr')[:4]
-                print(f"\nTable {i+1} - first {len(rows)} rows:")
-                for r in rows:
-                    cells = [cell.get_text(strip=True) for cell in r.find_all(['th', 'td'])]
-                    print(f"  Row: {cells[:6]}...")  # first 6 cells to keep logs readable
+                    # Any colspan?
+                    colspans = table.find_all(attrs={'colspan': True})
+                    if colspans:
+                        print(f"  Colspans present: {len(colspans)}")
 
-            # Old parser still runs for comparison (you can delete this block later)
-            entries = []
-            authority_cells = soup.find_all('td', attrs={'colspan': '4'})
-            for cell in authority_cells:
-                authority_text = cell.get_text(strip=True)
-                if any(p in authority_text for p in target_phrases):
-                    # ... (your original extraction logic unchanged)
-                    pass  # we'll replace this once we see the debug output
+                    if data_tables_found >= 2:  # usually only 1 main table
+                        break
 
-            if not entries:
-                print("\nNo matching rows found with old logic (as expected). Share these debug logs and I'll send the updated parser immediately.")
+            if data_tables_found == 0:
+                print("No data tables with MCs found — site changed again.")
+
+            print("\nDebug complete — share these logs and I'll send the full working parser immediately (MC + Date filter + Name + Authority).")
 
         except Exception as e:
             print(f"Error: {str(e)}")
