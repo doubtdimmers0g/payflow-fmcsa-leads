@@ -3,8 +3,9 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import re
+import json
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2 import service_account
 import os
 
 def main():
@@ -123,24 +124,14 @@ def main():
 
             print(f"Found {len(entries)} leads in FITNESS-ONLY table.")
 
-            # === Google Sheets + Dedupe ===
+            # === Google Sheets + Dedupe (modern google-auth) ===
             if entries:
-                scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-                creds_dict = {
-                    "type": "service_account",
-                    "project_id": os.getenv("GOOGLE_PROJECT_ID"),
-                    "private_key_id": os.getenv("GOOGLE_PRIVATE_KEY_ID"),
-                    "private_key": os.getenv("GOOGLE_PRIVATE_KEY").replace('\\n', '\n'),
-                    "client_email": os.getenv("GOOGLE_CLIENT_EMAIL"),
-                    "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                    "token_uri": "https://oauth2.googleapis.com/token"
-                }
-                creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict)
+                creds_info = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
+                creds = service_account.Credentials.from_service_account_info(creds_info)
                 client = gspread.authorize(creds)
                 sheet = client.open_by_key(os.getenv("SHEET_ID")).sheet1
 
-                existing_mcs = {row[1] for row in sheet.get_all_values()[1:]}  # mc_number is column B
+                existing_mcs = {row[1] for row in sheet.get_all_values()[1:]}
 
                 new_rows = []
                 for e in entries:
