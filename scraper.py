@@ -1,5 +1,5 @@
 from playwright.sync_api import sync_playwright
-import re
+from bs4 import BeautifulSoup
 from datetime import date
 
 def main():
@@ -35,8 +35,8 @@ def main():
             page.wait_for_load_state("networkidle", timeout=60000)
             print("HTML Detail loaded")
 
-            content = page.inner_text("body")
-            lines = [line.strip() for line in content.split('\n') if line.strip()]
+            html = page.content()
+            soup = BeautifulSoup(html, 'html.parser')
 
             target_phrases = [
                 "Interstate common carrier (except household goods)",
@@ -44,63 +44,46 @@ def main():
             ]
 
             entries = []
-            in_block = False
-            current_authority = None
-            i = 0
-            while i < len(lines):
-                line = lines[i]
+            # Find all authority cells
+            authority_cells = soup.find_all('td', attrs={'colspan': '4'})
+            for cell in authority_cells:
+                authority_text = cell.get_text(strip=True)
+                if any(p in authority_text for p in target_phrases):
+                    # Get parent row
+                    row = cell.find_parent('tr')
+                    if not row:
+                        continue
 
-                # Detect authority block
-                matched_phrase = next((p for p in target_phrases if p in line), None)
-                if matched_phrase:
-                    in_block = True
-                    current_authority = matched_phrase
-                    print(f"Found block: {current_authority[:80]}...")
-                    i += 1
-                    continue
+                    cells = row.find_all(['th', 'td'])
+                    if len(cells) < 3:
+                        continue
 
-                if not in_block:
-                    i += 1
-                    continue
+                    # MC (first cell)
+                    mc_cell = cells[0]
+                    mc = mc_cell.get_text(strip=True)
+                    if not re.match(r'MC-180\d{4,5}(?:-[A-Z])?', mc, re.I):
+                        continue
 
-                # MC match
-                mc_match = re.search(r'(MC-180\d{4,5}(?:-[A-Z])?)', line, re.I)
-                if mc_match:
-                    mc = mc_match.group(1).upper()
+                    # Date (second cell)
+                    date_cell = cells[1]
+                    date_str = date_cell.get_text(strip=True)
 
-                    date_str = ""
-                    name = ""
+                    # Company Name (first div in third cell)
+                    name_cell = cells[2]
+                    name_div = name_cell.find('div')
+                    name = name_div.get_text(strip=True) if name_div else "N/A"
 
-                    j = 1
-                    while j < 15 and i + j < len(lines):
-                        next_line = lines[i + j]
-
-                        # Date (mm/dd/yyyy)
-                        date_match = re.search(r'\d{2}/\d{2}/\d{4}', next_line)
-                        if date_match and not date_str:
-                            date_str = date_match.group(0)
-
-                        # Name - first substantial line after MC/date, stop before street number
-                        if len(next_line) > 10 and not date_match and not re.search(r'^\d{1,5}\s', next_line):
-                            if not name:
-                                name = next_line.strip()
-
-                        j += 1
-
-                    if name and date_str:
-                        entry = {
-                            "mc": mc,
-                            "date": date_str,
-                            "name": name,
-                            "authority": current_authority
-                        }
-                        entries.append(entry)
-                        print(f"EXTRACTED: {mc} | Date: {date_str} | Name: {name} | Authority: {current_authority[:80]}...")
+                    entry = {
+                        "mc": mc,
+                        "date": date_str,
+                        "name": name,
+                        "authority": authority_text
+                    }
+                    entries.append(entry)
+                    print(f"EXTRACTED: {mc} | Date: {date_str} | Name: {name} | Authority: {authority_text[:80]}...")
 
                     if len(entries) >= 10:
                         break
-
-                i += 1
 
             if entries:
                 print(f"\nFound {len(entries)} leads")
@@ -110,10 +93,10 @@ def main():
                 for e in entries:
                     print(f"{e['mc']} | {e['date']} | {e['name']} | {e['authority']}")
             else:
-                print("No valid entries found - check if MC/date/name lines are being hit.")
+                print("No matching rows found with target authority phrases - check if colspan=4 cells exist.")
 
         except Exception as e:
-            print(f"Playwright error: {str(e)}")
+            print(f"Error: {str(e)}")
         finally:
             browser.close()
 
