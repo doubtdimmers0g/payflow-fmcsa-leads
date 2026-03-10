@@ -5,12 +5,12 @@ from zoneinfo import ZoneInfo
 import re
 
 def main():
-    print("TEST MODE: FMCSA GRANT DIAGNOSTIC - showing EXACT raw text the script sees")
-    print("No sheet writes - console only\n")
+    print("TEST MODE: FMCSA GRANT - Fixed Authority Tracking")
+    print("No sheet writes - console only for validation\n")
 
     central = ZoneInfo("America/Chicago")
     today_str = datetime.now(central).strftime('%m/%d/%Y')
-    print(f"Date: {today_str}\n")
+    print(f"Today in Central Time: {today_str}\n")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
@@ -23,12 +23,12 @@ def main():
 
             row = page.locator(f"tr:has-text('{today_str}')")
             if row.count() == 0:
-                print("Today's row not found.")
+                print("Today's register row not found.")
                 return
 
             detail_button = row.locator("input[value='HTML Detail']")
             if detail_button.count() == 0:
-                print("HTML Detail button not found — only PDF links exist now.")
+                print("HTML Detail button not found.")
                 return
 
             print("Navigating to HTML Detail page...")
@@ -39,40 +39,98 @@ def main():
 
             soup = BeautifulSoup(page.content(), 'html.parser')
 
-            # Search for exact phrase from your screenshots
-            phrase_matches = soup.find_all(string=re.compile(r'except household goods', re.I))
-            print(f"Found '{len(phrase_matches)}' occurrences of 'except household goods' on the page:")
-            for m in phrase_matches:
-                print(f"  → {m.strip()}")
+            # Locate GRANT DECISION NOTICES section
+            grant_header = None
+            for tag in soup.find_all(['h1', 'h2', 'h3', 'h4', 'strong', 'p']):
+                if re.search(r'GRANT DECISION NOTICES', tag.get_text(strip=True), re.I):
+                    grant_header = tag
+                    print("✅ Located GRANT DECISION NOTICES section header")
+                    break
 
-            # All authority headers
-            print("\n=== ALL AUTHORITY HEADERS FOUND (exact text) ===")
-            authority_rows = soup.find_all('tr')
-            for r in authority_rows:
+            if not grant_header:
+                print("Could not locate GRANT section.")
+                return
+
+            # Find detailed table
+            target_table = None
+            for table in grant_header.find_all_next('table'):
+                header_row = table.find('tr')
+                if header_row:
+                    headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])]
+                    if 'Filed' in headers and 'Applicant' in headers:
+                        target_table = table
+                        print(f"✅ Found detailed GRANT table with columns: {headers}")
+                        break
+
+            if not target_table:
+                print("Could not find detailed GRANT table.")
+                return
+
+            # === ROBUST EXTRACTION WITH IMPROVED AUTHORITY TRACKING ===
+            entries = []
+            rows = target_table.find_all('tr')[1:]
+            current_authority = ""
+
+            target_phrases = [
+                "Interstate common carrier (except household goods)",
+                "Interstate contract carrier (except household goods)"
+            ]
+
+            for r in rows:
                 cells = r.find_all(['th', 'td'])
+
+                # Authority header row
                 if len(cells) == 1:
                     text = cells[0].get_text(strip=True).rstrip(':').strip()
-                    if "Interstate" in text or "carrier" in text.lower():
-                        print(f"Authority: '{text}'")
+                    if any(phrase in text for phrase in target_phrases):
+                        current_authority = text
+                        print(f"→ Matched target authority: {current_authority}")
+                    continue
 
-            # GRANT section raw text
-            grant_section = soup.find(string=re.compile(r'GRANT DECISION NOTICES', re.I))
-            if grant_section:
-                print("\n=== RAW TEXT AROUND GRANT DECISION NOTICES ===")
-                section_text = grant_section.parent.get_text(separator='\n', strip=True)[:2000]  # first 2000 chars
-                print(section_text)
+                # Data row
+                if len(cells) != 4:
+                    continue
 
-            # Sample tables
-            print("\n=== TABLES WITH 'Filed' OR 'Applicant' ===")
-            for table in soup.find_all('table'):
-                header = table.find('tr')
-                if header:
-                    headers = [c.get_text(strip=True) for c in header.find_all(['th', 'td'])]
-                    if 'Filed' in headers or 'Applicant' in headers:
-                        print(f"Table headers: {headers}")
-                        rows = table.find_all('tr')[:3]
-                        for row in rows:
-                            print("  Row:", [c.get_text(strip=True) for c in row.find_all(['th', 'td'])])
+                mc_cell = cells[0].get_text(strip=True)
+                filed_text = cells[1].get_text(strip=True)
+                applicant_text = cells[2].get_text(separator='\n', strip=True)
+                rep_text = cells[3].get_text(separator='\n', strip=True)
+
+                mc_match = re.search(r'(MC-\d{4,8}(?:-[A-Z])?)', mc_cell, re.I)
+                if not mc_match:
+                    continue
+                mc = mc_match.group(1)
+
+                date_match = re.search(r'(\d{2}/\d{2}/\d{4})', filed_text)
+                filed_date = date_match.group(1) if date_match else ""
+
+                applicant_lines = [line.strip() for line in applicant_text.splitlines() if line.strip()]
+                name = applicant_lines[0] if applicant_lines else ""
+                address = " ".join(applicant_lines[1:]) if len(applicant_lines) > 1 else ""
+
+                phone_match = re.search(r'Phone:\s*([\(\)\d\s-]+)', rep_text, re.I)
+                phone = phone_match.group(1).strip() if phone_match else "N/A"
+
+                if current_authority and any(phrase in current_authority for phrase in target_phrases):
+                    entry = {
+                        "mc": mc,
+                        "name": name,
+                        "address": address,
+                        "filed_date": filed_date,
+                        "phone": phone,
+                        "authority_type": current_authority
+                    }
+                    entries.append(entry)
+                    print(f"EXTRACTED → {mc} | {name} | {address[:40]}... | {filed_date} | {phone} | {current_authority}")
+
+            print(f"\n✅ Found {len(entries)} leads matching your target authority types.")
+            if entries:
+                print("\nMC Number | Company Name | Address | Filed Date | Phone | Authority Type")
+                print("-" * 130)
+                for e in entries:
+                    print(f"{e['mc']} | {e['name']} | {e['address']} | {e['filed_date']} | {e['phone']} | {e['authority_type']}")
+            else:
+                print("No target authority leads today (filter is now accurate — we'll catch them when they post).")
 
         except Exception as e:
             print(f"Error: {str(e)}")
