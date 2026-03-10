@@ -9,7 +9,7 @@ import gspread
 from google.oauth2 import service_account
 
 def main():
-    print("🚀 FMCSA DISMISSAL Scraper - PRODUCTION (MC- only)")
+    print("🚀 FMCSA DISMISSAL Scraper - PRODUCTION (MC- only + correct column order)")
     central = ZoneInfo("America/Chicago")
     today_str = datetime.now(central).strftime('%m/%d/%Y')
     run_date = datetime.now(central).strftime('%Y-%m-%d')
@@ -85,7 +85,7 @@ def main():
 
             print(f"Found {len(entries)} MC- dismissal leads.")
 
-            # === Google Sheets write + dedupe ===
+            # === Google Sheets write + dedupe (fixed column order) ===
             if entries:
                 creds_info = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
                 scopes = [
@@ -96,12 +96,13 @@ def main():
                 client = gspread.authorize(creds)
                 sheet = client.open_by_key(os.getenv("SHEET_ID")).worksheet("Dismissals")
 
-                existing_mcs = {row[0] for row in sheet.get_all_values()[1:]}  # mc_number is first column
+                existing_mcs = {row[1] for row in sheet.get_all_values()[1:]}  # mc_number is now column 1 (0-based)
 
                 new_rows = []
                 for e in entries:
                     if e["mc_number"] not in existing_mcs:
                         new_rows.append([
+                            e["run_date"],
                             e["mc_number"],
                             e["company_name"],
                             e["published_date"],
