@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import re
 
 def main():
-    print("TEST MODE: FMCSA GRANT - ALL Leads + Authority Type (with Table Debug)")
+    print("TEST MODE: FMCSA GRANT - ALL Leads + Authority Type (now using FITNESS-ONLY table)")
     print("No sheet writes - console only for validation\n")
 
     # Central Time lock (Houston)
@@ -52,33 +52,25 @@ def main():
                 print("Could not locate GRANT section.")
                 return
 
-            # === DEBUG: LIST ALL TABLES AFTER GRANT HEADER ===
-            print("\n=== DEBUG: ALL TABLES AFTER GRANT HEADER ===")
-            tables_after_grant = grant_header.find_all_next('table')
-            print(f"Total tables after GRANT header: {len(tables_after_grant)}")
-
-            for idx, table in enumerate(tables_after_grant):
-                header_row = table.find('tr')
-                headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])] if header_row else ["(no header)"]
-                row_count = len(table.find_all('tr'))
-                print(f"Table {idx} — Headers: {headers} | Total rows: {row_count}")
-
-            # Find detailed table (same as your original code)
+            # Find the SECOND matching table (Table 2 - FITNESS-ONLY)
             target_table = None
+            count = 0
             for table in grant_header.find_all_next('table'):
                 header_row = table.find('tr')
                 if header_row:
                     headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])]
                     if 'Filed' in headers and 'Applicant' in headers:
-                        target_table = table
-                        print(f"✅ Selected table for extraction with headers: {headers}")
-                        break
+                        count += 1
+                        if count == 2:  # <--- this line picks the second table
+                            target_table = table
+                            print(f"✅ Using FITNESS-ONLY table (Table 2) with headers: {headers}")
+                            break
 
             if not target_table:
-                print("Could not find detailed GRANT table.")
+                print("Could not find FITNESS-ONLY table.")
                 return
 
-            # === EXTRACTION - ALL leads + Authority Type (exactly your version) ===
+            # === EXTRACTION - ALL leads + Authority Type (unchanged) ===
             entries = []
             rows = target_table.find_all('tr')[1:]
             current_authority = ""
@@ -86,14 +78,12 @@ def main():
             for r in rows:
                 cells = r.find_all(['th', 'td'])
 
-                # Authority header row
                 if len(cells) == 1:
                     text = cells[0].get_text(strip=True).rstrip(':').strip()
                     if "Interstate" in text or "carrier" in text.lower():
                         current_authority = text
                     continue
 
-                # Data row
                 if len(cells) != 4:
                     continue
 
