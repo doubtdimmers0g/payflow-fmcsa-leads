@@ -39,7 +39,7 @@ def main():
 
             soup = BeautifulSoup(page.content(), 'html.parser')
 
-            # === TARGET DISMISSAL SECTION ===
+            # Target DISMISSAL section
             dismissal_header = None
             for tag in soup.find_all(['h1', 'h2', 'h3', 'h4', 'strong', 'p']):
                 if re.search(r'DISMISSAL', tag.get_text(strip=True), re.I):
@@ -51,7 +51,7 @@ def main():
                 print("DISMISSAL section not found on this page.")
                 return
 
-            # Find the table immediately after the DISMISSAL header
+            # Find the table right after the DISMISSAL header
             target_table = dismissal_header.find_next('table')
             if not target_table:
                 print("DISMISSAL table not found.")
@@ -59,9 +59,9 @@ def main():
 
             print(f"✅ Found DISMISSAL table with headers: {[cell.get_text(strip=True) for cell in target_table.find('tr').find_all(['th', 'td'])]}")
 
-            # === EXTRACTION ===
+            # Extract
             entries = []
-            rows = target_table.find_all('tr')[1:]  # skip header
+            rows = target_table.find_all('tr')[1:]
 
             for r in rows:
                 cells = r.find_all(['th', 'td'])
@@ -73,13 +73,11 @@ def main():
                 published = cells[2].get_text(strip=True)
                 decided = cells[3].get_text(strip=True)
 
-                # MC number from Number column
                 mc_match = re.search(r'(MC-\d{4,8}(?:-[A-Z])?|FF-\d+)', number, re.I)
                 if not mc_match:
                     continue
                 mc_number = mc_match.group(1)
 
-                # Company name from Title (take first part before location)
                 company_name = title.split(' - ', 1)[0] if ' - ' in title else title
 
                 entry = {
