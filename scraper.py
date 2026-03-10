@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import re
 
 def main():
-    print("TEST MODE: FMCSA HTML Detail scraper - extracting MC, Company Name, Decided Date")
+    print("TEST MODE: FMCSA HTML Detail scraper - GRANT DECISION NOTICES only")
     print("No sheet writes - console only for validation\n")
 
     # Central Time lock (Houston)
@@ -41,22 +41,20 @@ def main():
 
             soup = BeautifulSoup(page.content(), 'html.parser')
 
-            # Find the Grant Decision table
-            target_table = None
-            for table in soup.find_all('table'):
-                header_row = table.find('tr')
-                if header_row:
-                    headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])]
-                    if 'Decided' in headers:
-                        target_table = table
-                        print(f"✅ Found Grant Decision table with columns: {headers}")
-                        break
-
-            if not target_table:
-                print("Could not find table with 'Decided' column.")
+            # === EXPLICITLY TARGET GRANT DECISION NOTICES SECTION ===
+            grant_header = soup.find(string=re.compile(r"GRANT DECISION NOTICES", re.I))
+            if not grant_header:
+                print("Could not find 'GRANT DECISION NOTICES' section on the page.")
                 return
 
-            # Extract ALL rows (this is today's fresh batch)
+            target_table = grant_header.find_next('table')
+            if not target_table:
+                print("Found GRANT DECISION NOTICES header but no table after it.")
+                return
+
+            print("✅ Found GRANT DECISION NOTICES table")
+
+            # Extract from that exact table
             entries = []
             rows = target_table.find_all('tr')[1:]  # skip header
 
@@ -69,30 +67,28 @@ def main():
                 title = cells[1].strip()
                 decided = cells[2].strip()
 
-                # Clean company name (split off location)
                 name = title.split(' - ', 1)[0] if ' - ' in title else title
+                location = title.split(' - ', 1)[1] if ' - ' in title else ""
 
                 if re.search(r'MC-\d{4,8}', mc, re.I):
                     entry = {
                         "mc": mc,
                         "name": name,
                         "decided_date": decided,
-                        "location": title.split(' - ', 1)[1] if ' - ' in title else ""
+                        "location": location
                     }
                     entries.append(entry)
                     print(f"EXTRACTED → {mc} | {name} | Decided: {decided}")
 
-            # Quick summary for visibility
             decided_dates = {e["decided_date"] for e in entries}
-            print(f"\n✅ Found {len(entries)} new leads in today's register.")
+            print(f"\n✅ Found {len(entries)} new leads in the GRANT DECISION NOTICES section.")
             print(f"Decided dates present: {sorted(decided_dates)}")
+
             if entries:
                 print("\nMC Number | Company Name | Location | Decided")
                 print("-" * 70)
                 for e in entries:
                     print(f"{e['mc']} | {e['name']} | {e['location']} | {e['decided_date']}")
-            else:
-                print("No grants in today's register (quiet day).")
 
         except Exception as e:
             print(f"Error: {str(e)}")
