@@ -53,7 +53,7 @@ def main():
                 print("Could not locate GRANT DECISION NOTICES section.")
                 return
 
-            # Find the detailed table with "Filed" / "Applicant" / "Representative" (exact match to your screenshot)
+            # Find the detailed table with Filed / Applicant / Representative
             target_table = None
             for table in grant_header.find_all_next('table'):
                 header_row = table.find('tr')
@@ -61,41 +61,43 @@ def main():
                     headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])]
                     if 'Filed' in headers and 'Applicant' in headers and 'Representative' in headers:
                         target_table = table
-                        print(f"✅ Found detailed GRANT DECISION NOTICES table with columns: {headers}")
+                        print(f"✅ Found detailed GRANT table with columns: {headers}")
                         break
 
             if not target_table:
-                print("Found section header but could not locate the detailed data table.")
+                print("Could not find detailed GRANT table.")
                 return
 
-            # Extract leads from the detailed table
+            # === FIXED EXTRACTION (correct cell indexing + parsing) ===
             entries = []
             rows = target_table.find_all('tr')[1:]  # skip header
 
             for r in rows:
                 cells = r.find_all(['th', 'td'])
-                if len(cells) < 3:
+                if len(cells) < 4:
                     continue
 
-                filed_cell = cells[0].get_text(strip=True)
-                applicant_cell = cells[1].get_text(separator='\n', strip=True)
-                rep_cell = cells[2].get_text(separator='\n', strip=True)
+                filed_text = cells[1].get_text(strip=True)       # MC + date
+                applicant_text = cells[2].get_text(separator='\n', strip=True)
+                rep_text = cells[3].get_text(separator='\n', strip=True)
 
-                # Pull MC and filed date
-                mc_match = re.search(r'(MC-\d{4,8}(?:-[A-Z])?)', filed_cell, re.I)
+                # MC from Filed column
+                mc_match = re.search(r'(MC-\d{4,8}(?:-[A-Z])?)', filed_text, re.I)
                 if not mc_match:
                     continue
                 mc = mc_match.group(1)
-                filed_date = re.search(r'\d{2}/\d{2}/\d{4}', filed_cell)
-                filed_date = filed_date.group(0) if filed_date else ""
 
-                # Clean applicant (first line = name, rest = address)
-                applicant_lines = [line.strip() for line in applicant_cell.split('\n') if line.strip()]
+                # Filed date from Filed column
+                date_match = re.search(r'(\d{2}/\d{2}/\d{4})', filed_text)
+                filed_date = date_match.group(1) if date_match else ""
+
+                # Applicant: name on first line, rest = address
+                applicant_lines = [line.strip() for line in applicant_text.splitlines() if line.strip()]
                 name = applicant_lines[0] if applicant_lines else ""
-                address = ' '.join(applicant_lines[1:]) if len(applicant_lines) > 1 else ""
+                address = " ".join(applicant_lines[1:]) if len(applicant_lines) > 1 else ""
 
-                # Pull phone from rep cell
-                phone_match = re.search(r'Phone:\s*([\(\)\d\s-]+)', rep_cell, re.I)
+                # Phone from Representative column
+                phone_match = re.search(r'Phone:\s*([\(\)\d\s-]+)', rep_text, re.I)
                 phone = phone_match.group(1).strip() if phone_match else "N/A"
 
                 entry = {
@@ -103,20 +105,19 @@ def main():
                     "name": name,
                     "filed_date": filed_date,
                     "address": address,
-                    "rep_info": rep_cell.split('\n')[0] if rep_cell else "",
                     "phone": phone
                 }
                 entries.append(entry)
                 print(f"EXTRACTED → {mc} | {name} | Filed: {filed_date} | Phone: {phone}")
 
-            print(f"\n✅ Found {len(entries)} new leads in the GRANT DECISION NOTICES detailed table.")
+            print(f"\n✅ Found {len(entries)} new leads in the detailed GRANT DECISION NOTICES table.")
             if entries:
-                print("\nMC Number | Company Name | Filed Date | Phone | Address")
-                print("-" * 90)
+                print("\nMC Number | Company Name | Filed Date | Phone")
+                print("-" * 70)
                 for e in entries:
-                    print(f"{e['mc']} | {e['name']} | {e['filed_date']} | {e['phone']} | {e['address'][:60]}...")
+                    print(f"{e['mc']} | {e['name']} | {e['filed_date']} | {e['phone']}")
             else:
-                print("No grants found in the detailed GRANT section (quiet day).")
+                print("No grants found (quiet day).")
 
         except Exception as e:
             print(f"Error: {str(e)}")
