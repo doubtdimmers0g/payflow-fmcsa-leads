@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import re
 
 def main():
-    print("TEST MODE: FMCSA HTML Detail scraper - GRANT DECISION NOTICES only (FINAL + Address)")
+    print("TEST MODE: FMCSA HTML Detail scraper - GRANT DECISION NOTICES only (FINAL + Address + Authority)")
     print("No sheet writes - console only for validation\n")
 
     # Central Time lock (Houston)
@@ -68,12 +68,22 @@ def main():
                 print("Could not find detailed GRANT table.")
                 return
 
-            # === EXTRACTION with Address ===
+            # === EXTRACTION with Authority Type ===
             entries = []
             rows = target_table.find_all('tr')[1:]
+            current_authority = ""  # tracks the last authority header
 
             for r in rows:
                 cells = r.find_all(['th', 'td'])
+
+                # Authority header row (1 cell)
+                if len(cells) == 1:
+                    text = cells[0].get_text(strip=True)
+                    if "Interstate" in text or "carrier" in text.lower():
+                        current_authority = text
+                    continue
+
+                # Data row (4 cells)
                 if len(cells) != 4:
                     continue
 
@@ -100,19 +110,20 @@ def main():
                 entry = {
                     "mc": mc,
                     "name": name,
-                    "filed_date": filed_date,
                     "address": address,
-                    "phone": phone
+                    "filed_date": filed_date,
+                    "phone": phone,
+                    "authority_type": current_authority
                 }
                 entries.append(entry)
-                print(f"EXTRACTED → {mc} | {name} | {address[:50]}... | {filed_date} | {phone}")
+                print(f"EXTRACTED → {mc} | {name} | {address[:40]}... | {filed_date} | {phone} | {current_authority[:60]}...")
 
             print(f"\n✅ Found {len(entries)} new leads in the GRANT DECISION NOTICES detailed table.")
             if entries:
-                print("\nMC Number | Company Name | Address | Filed Date | Phone")
-                print("-" * 100)
+                print("\nMC Number | Company Name | Address | Filed Date | Phone | Authority Type")
+                print("-" * 120)
                 for e in entries:
-                    print(f"{e['mc']} | {e['name']} | {e['address']} | {e['filed_date']} | {e['phone']}")
+                    print(f"{e['mc']} | {e['name']} | {e['address']} | {e['filed_date']} | {e['phone']} | {e['authority_type']}")
             else:
                 print("No grants found (quiet day).")
 
