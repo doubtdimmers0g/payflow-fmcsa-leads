@@ -126,4 +126,48 @@ def main():
             # === Google Sheets + Dedupe ===
             if entries:
                 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-                creds
+                creds_dict = {
+                    "type": "service_account",
+                    "project_id": os.getenv("GOOGLE_PROJECT_ID"),
+                    "private_key_id": os.getenv("GOOGLE_PRIVATE_KEY_ID"),
+                    "private_key": os.getenv("GOOGLE_PRIVATE_KEY").replace('\\n', '\n'),
+                    "client_email": os.getenv("GOOGLE_CLIENT_EMAIL"),
+                    "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token"
+                }
+                creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict)
+                client = gspread.authorize(creds)
+                sheet = client.open_by_key(os.getenv("SHEET_ID")).sheet1
+
+                existing_mcs = {row[1] for row in sheet.get_all_values()[1:]}  # mc_number is column B
+
+                new_rows = []
+                for e in entries:
+                    if e["mc_number"] and e["mc_number"] not in existing_mcs:
+                        new_rows.append([
+                            e["run_date"],
+                            e["mc_number"],
+                            e["company_name"],
+                            e["authority_type"],
+                            e["filed_date"],
+                            e["address"],
+                            e["rep_name"],
+                            e["phone"]
+                        ])
+
+                if new_rows:
+                    sheet.append_rows(new_rows)
+                    print(f"✅ Added {len(new_rows)} NEW leads to your Payflow sheet.")
+                else:
+                    print("No new leads today.")
+            else:
+                print("No leads in FITNESS-ONLY table today.")
+
+        except Exception as e:
+            print(f"Error: {str(e)}")
+        finally:
+            browser.close()
+
+if __name__ == "__main__":
+    main()
