@@ -1,16 +1,16 @@
 from playwright.sync_api import sync_playwright
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
-import re  # added so the MC check doesn't crash later
+import re
 
 def main():
     print("TEST MODE: FMCSA HTML Detail scraper - extracting MC, Date, Company Name, Authority")
     print("No sheet writes - console only for validation")
 
-    # Central Time (Houston) so it always matches your local day
+    # Central Time (Houston) lock
     central = ZoneInfo("America/Chicago")
-    today_str = datetime.now(central).strftime('%m/%d/%Y')  # e.g., 03/09/2026
+    today_str = datetime.now(central).strftime('%m/%d/%Y')
     print(f"Today in Central Time (your local date): {today_str}")
 
     with sync_playwright() as p:
@@ -42,57 +42,50 @@ def main():
             html = page.content()
             soup = BeautifulSoup(html, 'html.parser')
 
+            # === NEW DEBUG SECTION - this is what will show us the new structure ===
+            print("\n=== DEBUG: PAGE TITLE ===")
+            print(soup.title.get_text(strip=True) if soup.title else "No title")
+
+            print("\n=== DEBUG: TABLES FOUND ===")
+            tables = soup.find_all('table')
+            print(f"Total tables on page: {len(tables)}")
+
+            print("\n=== DEBUG: AUTHORITY PHRASES SEARCH ===")
             target_phrases = [
                 "Interstate common carrier (except household goods)",
                 "Interstate contract carrier (except household goods)"
             ]
+            for phrase in target_phrases:
+                matches = soup.find_all(string=re.compile(phrase, re.I))
+                print(f"Matches for '{phrase}': {len(matches)}")
+                for m in matches[:2]:
+                    print(f"  → {m.strip()[:150]}...")
 
+            print("\n=== DEBUG: MC NUMBERS FOUND ANYWHERE ===")
+            mc_matches = soup.find_all(string=re.compile(r'MC-\d{4,8}', re.I))
+            print(f"Found {len(mc_matches)} potential MC numbers")
+            for m in mc_matches[:5]:
+                print(f"  → {m.strip()}")
+
+            print("\n=== DEBUG: SAMPLE TABLE ROWS (first 3 tables) ===")
+            for i, table in enumerate(tables[:3]):
+                rows = table.find_all('tr')[:4]
+                print(f"\nTable {i+1} - first {len(rows)} rows:")
+                for r in rows:
+                    cells = [cell.get_text(strip=True) for cell in r.find_all(['th', 'td'])]
+                    print(f"  Row: {cells[:6]}...")  # first 6 cells to keep logs readable
+
+            # Old parser still runs for comparison (you can delete this block later)
             entries = []
             authority_cells = soup.find_all('td', attrs={'colspan': '4'})
             for cell in authority_cells:
                 authority_text = cell.get_text(strip=True)
                 if any(p in authority_text for p in target_phrases):
-                    row = cell.find_parent('tr')
-                    if not row:
-                        continue
+                    # ... (your original extraction logic unchanged)
+                    pass  # we'll replace this once we see the debug output
 
-                    cells = row.find_all(['th', 'td'])
-                    if len(cells) < 3:
-                        continue
-
-                    mc_cell = cells[0]
-                    mc = mc_cell.get_text(strip=True)
-                    if not re.match(r'MC-180\d{4,5}(?:-[A-Z])?', mc, re.I):
-                        continue
-
-                    date_cell = cells[1]
-                    date_str = date_cell.get_text(strip=True)
-
-                    name_cell = cells[2]
-                    name_div = name_cell.find('div')
-                    name = name_div.get_text(strip=True) if name_div else "N/A"
-
-                    entry = {
-                        "mc": mc,
-                        "date": date_str,
-                        "name": name,
-                        "authority": authority_text
-                    }
-                    entries.append(entry)
-                    print(f"EXTRACTED: {mc} | Date: {date_str} | Name: {name} | Authority: {authority_text[:80]}...")
-
-                    if len(entries) >= 10:
-                        break
-
-            if entries:
-                print(f"\nFound {len(entries)} leads")
-                print("\nSAMPLE LEADS (TEST MODE):")
-                print("MC Number | Date | Company Name | Authority Type")
-                print("-" * 80)
-                for e in entries:
-                    print(f"{e['mc']} | {e['date']} | {e['name']} | {e['authority']}")
-            else:
-                print("No matching rows found with target authority phrases - check if colspan=4 cells exist.")
+            if not entries:
+                print("\nNo matching rows found with old logic (as expected). Share these debug logs and I'll send the updated parser immediately.")
 
         except Exception as e:
             print(f"Error: {str(e)}")
