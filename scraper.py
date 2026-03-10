@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import re
 
 def main():
-    print("TEST MODE: FMCSA HTML Detail scraper - GRANT DECISION NOTICES only")
+    print("TEST MODE: FMCSA HTML Detail scraper - GRANT DECISION NOTICES only (detailed table)")
     print("No sheet writes - console only for validation\n")
 
     # Central Time lock (Houston)
@@ -41,54 +41,82 @@ def main():
 
             soup = BeautifulSoup(page.content(), 'html.parser')
 
-            # === EXPLICITLY TARGET GRANT DECISION NOTICES SECTION ===
-            grant_header = soup.find(string=re.compile(r"GRANT DECISION NOTICES", re.I))
+            # === TARGET GRANT DECISION NOTICES SECTION ===
+            grant_header = None
+            for tag in soup.find_all(['h1', 'h2', 'h3', 'h4', 'strong', 'p']):
+                if re.search(r'GRANT DECISION NOTICES', tag.get_text(strip=True), re.I):
+                    grant_header = tag
+                    print("✅ Located GRANT DECISION NOTICES section header")
+                    break
+
             if not grant_header:
-                print("Could not find 'GRANT DECISION NOTICES' section on the page.")
+                print("Could not locate GRANT DECISION NOTICES section.")
                 return
 
-            target_table = grant_header.find_next('table')
+            # Find the detailed table with "Filed" / "Applicant" / "Representative" (exact match to your screenshot)
+            target_table = None
+            for table in grant_header.find_all_next('table'):
+                header_row = table.find('tr')
+                if header_row:
+                    headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])]
+                    if 'Filed' in headers and 'Applicant' in headers and 'Representative' in headers:
+                        target_table = table
+                        print(f"✅ Found detailed GRANT DECISION NOTICES table with columns: {headers}")
+                        break
+
             if not target_table:
-                print("Found GRANT DECISION NOTICES header but no table after it.")
+                print("Found section header but could not locate the detailed data table.")
                 return
 
-            print("✅ Found GRANT DECISION NOTICES table")
-
-            # Extract from that exact table
+            # Extract leads from the detailed table
             entries = []
             rows = target_table.find_all('tr')[1:]  # skip header
 
             for r in rows:
-                cells = [cell.get_text(strip=True) for cell in r.find_all(['th', 'td'])]
+                cells = r.find_all(['th', 'td'])
                 if len(cells) < 3:
                     continue
 
-                mc = cells[0].strip()
-                title = cells[1].strip()
-                decided = cells[2].strip()
+                filed_cell = cells[0].get_text(strip=True)
+                applicant_cell = cells[1].get_text(separator='\n', strip=True)
+                rep_cell = cells[2].get_text(separator='\n', strip=True)
 
-                name = title.split(' - ', 1)[0] if ' - ' in title else title
-                location = title.split(' - ', 1)[1] if ' - ' in title else ""
+                # Pull MC and filed date
+                mc_match = re.search(r'(MC-\d{4,8}(?:-[A-Z])?)', filed_cell, re.I)
+                if not mc_match:
+                    continue
+                mc = mc_match.group(1)
+                filed_date = re.search(r'\d{2}/\d{2}/\d{4}', filed_cell)
+                filed_date = filed_date.group(0) if filed_date else ""
 
-                if re.search(r'MC-\d{4,8}', mc, re.I):
-                    entry = {
-                        "mc": mc,
-                        "name": name,
-                        "decided_date": decided,
-                        "location": location
-                    }
-                    entries.append(entry)
-                    print(f"EXTRACTED → {mc} | {name} | Decided: {decided}")
+                # Clean applicant (first line = name, rest = address)
+                applicant_lines = [line.strip() for line in applicant_cell.split('\n') if line.strip()]
+                name = applicant_lines[0] if applicant_lines else ""
+                address = ' '.join(applicant_lines[1:]) if len(applicant_lines) > 1 else ""
 
-            decided_dates = {e["decided_date"] for e in entries}
-            print(f"\n✅ Found {len(entries)} new leads in the GRANT DECISION NOTICES section.")
-            print(f"Decided dates present: {sorted(decided_dates)}")
+                # Pull phone from rep cell
+                phone_match = re.search(r'Phone:\s*([\(\)\d\s-]+)', rep_cell, re.I)
+                phone = phone_match.group(1).strip() if phone_match else "N/A"
 
+                entry = {
+                    "mc": mc,
+                    "name": name,
+                    "filed_date": filed_date,
+                    "address": address,
+                    "rep_info": rep_cell.split('\n')[0] if rep_cell else "",
+                    "phone": phone
+                }
+                entries.append(entry)
+                print(f"EXTRACTED → {mc} | {name} | Filed: {filed_date} | Phone: {phone}")
+
+            print(f"\n✅ Found {len(entries)} new leads in the GRANT DECISION NOTICES detailed table.")
             if entries:
-                print("\nMC Number | Company Name | Location | Decided")
-                print("-" * 70)
+                print("\nMC Number | Company Name | Filed Date | Phone | Address")
+                print("-" * 90)
                 for e in entries:
-                    print(f"{e['mc']} | {e['name']} | {e['location']} | {e['decided_date']}")
+                    print(f"{e['mc']} | {e['name']} | {e['filed_date']} | {e['phone']} | {e['address'][:60]}...")
+            else:
+                print("No grants found in the detailed GRANT section (quiet day).")
 
         except Exception as e:
             print(f"Error: {str(e)}")
