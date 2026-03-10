@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import re
 
 def main():
-    print("TEST MODE: FMCSA GRANT - ALL Leads + Authority Type")
+    print("TEST MODE: FMCSA GRANT Scraper - Extract All → Post-Filter")
     print("No sheet writes - console only for validation\n")
 
     # Central Time lock (Houston)
@@ -45,11 +45,10 @@ def main():
             for tag in soup.find_all(['h1', 'h2', 'h3', 'h4', 'strong', 'p']):
                 if re.search(r'GRANT DECISION NOTICES', tag.get_text(strip=True), re.I):
                     grant_header = tag
-                    print("✅ Located GRANT DECISION NOTICES section header")
                     break
 
             if not grant_header:
-                print("Could not locate GRANT section.")
+                print("GRANT section not found.")
                 return
 
             # Find detailed table
@@ -60,29 +59,26 @@ def main():
                     headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])]
                     if 'Filed' in headers and 'Applicant' in headers:
                         target_table = table
-                        print(f"✅ Found detailed GRANT table with columns: {headers}")
                         break
 
             if not target_table:
-                print("Could not find detailed GRANT table.")
+                print("Detailed GRANT table not found.")
                 return
 
-            # === EXTRACTION - ALL leads + Authority Type ===
-            entries = []
+            # === Extract ALL leads ===
+            raw_entries = []
             rows = target_table.find_all('tr')[1:]
             current_authority = ""
 
             for r in rows:
                 cells = r.find_all(['th', 'td'])
 
-                # Authority header row
                 if len(cells) == 1:
                     text = cells[0].get_text(strip=True).rstrip(':').strip()
                     if "Interstate" in text or "carrier" in text.lower():
                         current_authority = text
                     continue
 
-                # Data row
                 if len(cells) != 4:
                     continue
 
@@ -105,26 +101,37 @@ def main():
 
                 phone_match = re.search(r'Phone:\s*([\(\)\d\s-]+)', rep_text, re.I)
                 phone = phone_match.group(1).strip() if phone_match else "N/A"
+                phone = re.sub(r'\D', '', phone)
+                if len(phone) == 10:
+                    phone = f"({phone[:3]}) {phone[3:6]}-{phone[6:]}"
 
-                entry = {
+                raw_entries.append({
                     "mc": mc,
                     "name": name,
                     "address": address,
                     "filed_date": filed_date,
                     "phone": phone,
                     "authority_type": current_authority
-                }
-                entries.append(entry)
-                print(f"EXTRACTED → {mc} | {name} | {address[:40]}... | {filed_date} | {phone} | {current_authority}")
+                })
 
-            print(f"\n✅ Found {len(entries)} leads (all authority types).")
+            # === POST-EXTRACTION FILTER ===
+            target_phrases = [
+                "Interstate common carrier (except household goods)",
+                "Interstate contract carrier (except household goods)"
+            ]
+            entries = [e for e in raw_entries if e["authority_type"] and any(p in e["authority_type"] for p in target_phrases)]
+
+            skipped = len(raw_entries) - len(entries)
+            print(f"Extracted {len(raw_entries)} total leads → Filtered to {len(entries)} target freight carriers (skipped {skipped} others).\n")
+
             if entries:
-                print("\nMC Number | Company Name | Address | Filed Date | Phone | Authority Type")
+                print("MATCHED TARGET LEADS:")
+                print("MC Number | Company Name | Address | Filed Date | Phone | Authority Type")
                 print("-" * 140)
                 for e in entries:
                     print(f"{e['mc']} | {e['name']} | {e['address']} | {e['filed_date']} | {e['phone']} | {e['authority_type']}")
             else:
-                print("No leads found today.")
+                print("No target freight leads today (normal on some days).")
 
         except Exception as e:
             print(f"Error: {str(e)}")
