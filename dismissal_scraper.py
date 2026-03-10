@@ -2,10 +2,11 @@ from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import re
 
 def main():
-    print("TEST MODE: FULL PAGE TABLE DEBUG")
-    print("No sheet writes - just listing every table\n")
+    print("TEST MODE: FMCSA DISMISSAL Scraper - Table 14 Targeted")
+    print("No sheet writes - console only for validation\n")
 
     central = ZoneInfo("America/Chicago")
     today_str = datetime.now(central).strftime('%m/%d/%Y')
@@ -38,15 +39,59 @@ def main():
 
             soup = BeautifulSoup(page.content(), 'html.parser')
 
-            # === LIST EVERY TABLE ON THE PAGE ===
-            tables = soup.find_all('table')
-            print(f"Total tables found on the page: {len(tables)}\n")
-
-            for i, table in enumerate(tables):
+            # Target the exact DISMISSAL table (Table 14 in today's structure)
+            target_table = None
+            for table in soup.find_all('table'):
                 header_row = table.find('tr')
-                headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])] if header_row else ["(no header row)"]
-                row_count = len(table.find_all('tr'))
-                print(f"Table {i} — Headers: {headers} | Total rows: {row_count}")
+                if header_row:
+                    headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])]
+                    if headers == ['Number', 'Title', 'Published', 'Decided']:
+                        target_table = table
+                        print("✅ Found exact DISMISSAL table (Table 14)")
+                        break
+
+            if not target_table:
+                print("DISMISSAL table not found today.")
+                return
+
+            # === EXTRACTION ===
+            entries = []
+            rows = target_table.find_all('tr')[1:]
+
+            for r in rows:
+                cells = r.find_all(['th', 'td'])
+                if len(cells) < 4:
+                    continue
+
+                number = cells[0].get_text(strip=True)
+                title = cells[1].get_text(strip=True)
+                published = cells[2].get_text(strip=True)
+                decided = cells[3].get_text(strip=True)
+
+                mc_match = re.search(r'(MC-\d{4,8}(?:-[A-Z])?|FF-\d+)', number, re.I)
+                if not mc_match:
+                    continue
+                mc_number = mc_match.group(1)
+
+                company_name = title.split(' - ', 1)[0] if ' - ' in title else title
+
+                entry = {
+                    "mc_number": mc_number,
+                    "company_name": company_name,
+                    "published_date": published,
+                    "decided_date": decided
+                }
+                entries.append(entry)
+                print(f"EXTRACTED → {mc_number} | {company_name} | Published: {published} | Decided: {decided}")
+
+            print(f"\n✅ Found {len(entries)} leads in the DISMISSAL section.")
+            if entries:
+                print("\nMC Number | Company Name | Published Date | Decided Date")
+                print("-" * 100)
+                for e in entries:
+                    print(f"{e['mc_number']} | {e['company_name']} | {e['published_date']} | {e['decided_date']}")
+            else:
+                print("No dismissal leads found today.")
 
         except Exception as e:
             print(f"Error: {str(e)}")
