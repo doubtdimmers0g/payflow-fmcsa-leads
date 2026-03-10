@@ -36,7 +36,7 @@ def main():
             with page.expect_navigation(timeout=60000):
                 detail_button.click()
             page.wait_for_load_state("networkidle", timeout=60000)
-            print("â HTML Detail page loaded successfully\n")
+            print("HTML Detail page loaded successfully\n")
 
             soup = BeautifulSoup(page.content(), 'html.parser')
 
@@ -45,12 +45,17 @@ def main():
             for tag in soup.find_all(['h1', 'h2', 'h3', 'h4', 'strong', 'p']):
                 if re.search(r'GRANT DECISION NOTICES', tag.get_text(strip=True), re.I):
                     grant_header = tag
-                    print("â Located GRANT DECISION NOTICES section header")
+                    print("Located GRANT DECISION NOTICES section header")
                     break
 
             if not grant_header:
                 print("Could not locate GRANT section.")
                 return
+
+            # === NEW DEBUG SECTION - List every table after GRANT header ===
+            print("\n=== DEBUG: ALL TABLES AFTER GRANT HEADER ===")
+            all_tables_after_grant = grant_header.find_all_next('table')
+            print(f"Total tables after GRANT header: {len(all_tables_after_grant)}")
 
             # Find detailed table
             target_table = None
@@ -60,7 +65,7 @@ def main():
                     headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])]
                     if 'Filed' in headers and 'Applicant' in headers:
                         target_table = table
-                        print(f"â Found detailed GRANT table with columns: {headers}")
+                        print("Found detailed GRANT table with columns: {headers}")
                         break
 
             if not target_table:
@@ -117,7 +122,7 @@ def main():
                 entries.append(entry)
                 print(f"EXTRACTED â {mc} | {name} | {address[:40]}... | {filed_date} | {phone} | {current_authority}")
 
-            print(f"\nâ Found {len(entries)} leads (all authority types).")
+            print("Found {len(entries)} leads (all authority types).")
             if entries:
                 print("\nMC Number | Company Name | Address | Filed Date | Phone | Authority Type")
                 print("-" * 140)
