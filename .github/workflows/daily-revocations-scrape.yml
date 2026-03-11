@@ -1,1 +1,35 @@
-//
+name: Daily FMCSA Revocations Scraper
+
+on:
+  schedule:
+    - cron: '45 18 * * 1-5'  # 1:45 PM Central / 18:45 UTC, Monday–Friday
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+      
+      - name: Run revocations scraper
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+        run: python revocations_scraper.py
+      
+      - name: Clean up
+        run: rm -f creds.json
