@@ -2,7 +2,7 @@ name: Daily FMCSA Dismissal Scraper
 
 on:
   schedule:
-    - cron: '0 15 * * 1-5'  # 10:00 AM Central (15:00 UTC) – slightly after main run
+    - cron: '0 15 * * 1-5'  # 10:00 AM Central / 15:00 UTC, Monday–Friday
   workflow_dispatch:
 
 jobs:
