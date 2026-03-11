@@ -1,4 +1,4 @@
-name: Daily FMCSA Certificates Scraper
+name: Daily FMCSA CPL Scraper
 
 on:
   schedule:
@@ -25,11 +25,11 @@ jobs:
           pip install playwright
           playwright install --with-deps chromium
       
-      - name: Run certificates scraper
+      - name: Run cpl scraper
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           SHEET_ID: ${{ secrets.SHEET_ID }}
-        run: python certificates_scraper.py
+        run: python cpl_scraper.py
       
       - name: Clean up
         run: rm -f creds.json
