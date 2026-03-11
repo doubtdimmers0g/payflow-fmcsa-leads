@@ -2,7 +2,7 @@ name: Daily FMCSA CPL Scraper
 
 on:
   schedule:
-    - cron: '30 18 * * 1-5'  # 1:30 PM Central / 18:30 UTC, Monday–Friday
+    - cron: '15 15 * * 1-5'  # 10:15 AM Central / 15:15 UTC, Monday–Friday
   workflow_dispatch:
 
 jobs:
