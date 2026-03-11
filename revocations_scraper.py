@@ -3,27 +3,29 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import re
+import json
+import os
+import gspread
+from google.oauth2 import service_account
 
 def main():
-    print("TEST MODE: FMCSA REVOCATIONS Scraper")
-    print("No sheet writes - console only for validation\n")
-
+    print("🚀 FMCSA REVOCATIONS Scraper - PRODUCTION")
     central = ZoneInfo("America/Chicago")
     today_str = datetime.now(central).strftime('%m/%d/%Y')
-    print(f"Today in Central Time: {today_str}\n")
+    run_date = datetime.now(central).strftime('%Y-%m-%d')
+    print(f"Running for: {today_str}\n")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
         page = browser.new_page()
 
         try:
-            print("Loading selection page...")
             page.goto("https://li-public.fmcsa.dot.gov/LIVIEW/PKG_REGISTER.prc_reg_list", timeout=60000)
             page.wait_for_load_state("networkidle")
 
             row = page.locator(f"tr:has-text('{today_str}')")
             if row.count() == 0:
-                print("Today's register row not found.")
+                print("No register row today.")
                 return
 
             detail_button = row.locator("input[value='HTML Detail']")
@@ -31,11 +33,9 @@ def main():
                 print("HTML Detail button not found.")
                 return
 
-            print("Navigating to HTML Detail page...")
             with page.expect_navigation(timeout=60000):
                 detail_button.click()
             page.wait_for_load_state("networkidle", timeout=60000)
-            print("✅ HTML Detail page loaded successfully\n")
 
             soup = BeautifulSoup(page.content(), 'html.parser')
 
@@ -47,14 +47,12 @@ def main():
                     headers = [cell.get_text(strip=True) for cell in header_row.find_all(['th', 'td'])]
                     if headers == ['Number', 'Title', 'Decided', 'Decision Type']:
                         target_table = table
-                        print("✅ Found REVOCATIONS table")
                         break
 
             if not target_table:
                 print("No REVOCATIONS table today.")
                 return
 
-            # === EXTRACTION - MC- only ===
             entries = []
             rows = target_table.find_all('tr')[1:]
 
@@ -76,15 +74,35 @@ def main():
                 company_name = title.split(' - ', 1)[0] if ' - ' in title else title
 
                 entry = {
+                    "run_date": run_date,
                     "mc_number": mc_number,
                     "company_name": company_name,
                     "decided_date": decided,
                     "decision_type": decision_type
                 }
                 entries.append(entry)
-                print(f"EXTRACTED → {mc_number} | {company_name} | Decided: {decided} | Type: {decision_type}")
 
-            print(f"\n✅ Found {len(entries)} MC- revocation leads.")
+            print(f"Found {len(entries)} MC- revocation leads.")
+
+            if entries:
+                creds_info = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
+                scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+                creds = service_account.Credentials.from_service_account_info(creds_info, scopes=scopes)
+                client = gspread.authorize(creds)
+                sheet = client.open_by_key(os.getenv("SHEET_ID")).worksheet("Revocations")
+
+                existing_mcs = {row[1] for row in sheet.get_all_values()[1:]}
+
+                new_rows = []
+                for e in entries:
+                    if e["mc_number"] not in existing_mcs:
+                        new_rows.append([e["run_date"], e["mc_number"], e["company_name"], e["decided_date"], e["decision_type"]])
+
+                if new_rows:
+                    sheet.append_rows(new_rows)
+                    print(f"✅ Added {len(new_rows)} NEW revocation leads.")
+                else:
+                    print("No new revocations today.")
 
         except Exception as e:
             print(f"Error: {str(e)}")
