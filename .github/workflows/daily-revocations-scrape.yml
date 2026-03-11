@@ -2,7 +2,7 @@ name: Daily FMCSA Revocations Scraper
 
 on:
   schedule:
-    - cron: '45 18 * * 1-5'  # 1:45 PM Central / 18:45 UTC, Monday–Friday
+    - cron: '30 15 * * 1-5'  # 10:30 AM Central / 15:30 UTC, Monday–Friday
   workflow_dispatch:
 
 jobs:
