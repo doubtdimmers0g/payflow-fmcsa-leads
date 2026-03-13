@@ -29,7 +29,7 @@ jobs:
           SHEET_ID: ${{ secrets.SHEET_ID }}
           TELEGRAM_TOKEN: 8733411381:AAHK0TqW0SE6yRu3VwHpuUZcTeB9dsEejH0
           CHAT_ID: 7691951053
-        run: python .github/scripts/cumulative_report.py
+        run: cumulative_report.py
       
       - name: Clean up
         run: rm -f creds.json
