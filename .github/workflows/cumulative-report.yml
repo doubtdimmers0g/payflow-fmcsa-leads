@@ -1,4 +1,4 @@
-name: Cumulative Daily Report (2pm Central)
+name: Cumulative Daily Report
 
 on:
   schedule:
