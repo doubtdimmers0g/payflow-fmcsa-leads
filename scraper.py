@@ -164,5 +164,9 @@ def main():
         finally:
             browser.close()
 
+        entries_count = len(entries) if 'entries' in locals() else 0
+        added_count = len(new_rows) if 'new_rows' in locals() else 0
+        send_telegram(f"dismissal-scrape: {entries_count} MC- dismissal leads. Added {added_count} new to sheet.")
+
 if __name__ == "__main__":
     main()
