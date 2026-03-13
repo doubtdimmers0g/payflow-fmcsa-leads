@@ -1,0 +1,35 @@
+name: Daily Cumulative Extractor Report
+
+on:
+  schedule:
+    - cron: '0 19 * * 1-5'  # 2:00 PM Central / 19:00 UTC, Monday–Friday
+  workflow_dispatch:
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Write credentials
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > creds.json
+      
+      - name: Run cumulative report
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          TELEGRAM_TOKEN: 8733411381:AAHK0TqW0SE6yRu3VwHpuUZcTeB9dsEejH0
+          CHAT_ID: 7691951053
+        run: python .github/scripts/cumulative_report.py
+      
+      - name: Clean up
+        run: rm -f creds.json
