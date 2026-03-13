@@ -7,7 +7,22 @@ import json
 import os
 import gspread
 from google.oauth2 import service_account
+import requests
 
+def send_telegram(summary_line):
+    token = "8733411381:AAHK0TqW0SE6yRu3VwHpuUZcTeB9dsEejH0"   # TODO: move to GitHub Secret next week
+    chat_id = 7691951053
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    
+    date_str = datetime.now().strftime('%A, %B %d, %Y')
+    full_message = f"**{date_str} – Extractor Update**\n\n{summary_line}"
+    
+    try:
+        requests.post(url, json={"chat_id": chat_id, "text": full_message, "parse_mode": "Markdown"})
+        print("✅ Telegram sent")
+    except Exception as e:
+        print(f"Telegram failed: {e}")
+        
 def main():
     print("🚀 FMCSA CPL Scraper - PRODUCTION")
     central = ZoneInfo("America/Chicago")
@@ -105,6 +120,10 @@ def main():
             print(f"Error: {str(e)}")
         finally:
             browser.close()
+
+        entries_count = len(entries) if 'entries' in locals() else 0
+        added_count = len(new_rows) if 'new_rows' in locals() else 0
+        send_telegram(f"dismissal-scrape: {entries_count} MC- dismissal leads. Added {added_count} new to sheet.")
 
 if __name__ == "__main__":
     main()
