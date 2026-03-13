@@ -1,4 +1,4 @@
-name: Daily Cumulative Extractor Report
+name: Daily Cumulative Report
 
 on:
   schedule:
