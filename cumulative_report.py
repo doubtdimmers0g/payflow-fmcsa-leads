@@ -10,13 +10,15 @@ central = ZoneInfo("America/Chicago")
 today_str = datetime.now(central).strftime('%Y-%m-%d')
 date_display = datetime.now(central).strftime('%A, %B %d, %Y')
 
-print(f"DEBUG: Today string = {today_str}")
-
+# Load credentials with proper scopes (exactly like your other scrapers)
 creds_info = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
-creds = service_account.Credentials.from_service_account_info(creds_info)
+scopes = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
+creds = service_account.Credentials.from_service_account_info(creds_info, scopes=scopes)
 client = gspread.authorize(creds)
 sheet_id = os.getenv("SHEET_ID")
-print(f"DEBUG: Connected to sheet ID: {sheet_id}")
 
 def get_stats(ws_name):
     try:
@@ -25,11 +27,10 @@ def get_stats(ws_name):
         else:
             ws = client.open_by_key(sheet_id).worksheet(ws_name)
         
-        print(f"DEBUG: Successfully opened tab '{ws_name}'")
         rows = ws.get_all_values()
         cumulative = len(rows) - 1 if len(rows) > 0 else 0
         daily = sum(1 for row in rows[1:] if len(row) > 0 and row[0] == today_str)
-        print(f"DEBUG: {ws_name} - Daily: {daily}, Cumulative: {cumulative}")
+        
         return daily, cumulative
     except Exception as e:
         print(f"ERROR opening {ws_name}: {e}")
