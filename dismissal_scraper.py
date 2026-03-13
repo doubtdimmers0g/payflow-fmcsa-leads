@@ -22,6 +22,7 @@ def send_telegram(summary_line):
         print("✅ Telegram sent")
     except Exception as e:
         print(f"Telegram failed: {e}")
+
 def main():
     print("🚀 FMCSA DISMISSAL Scraper - PRODUCTION (MC- only + correct column order)")
     central = ZoneInfo("America/Chicago")
