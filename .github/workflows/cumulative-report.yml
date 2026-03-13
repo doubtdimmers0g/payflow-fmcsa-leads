@@ -1,0 +1,28 @@
+name: Cumulative Daily Report
+
+on:
+  schedule:
+    - cron: '0 19 * * 1-5'     # 2:00 PM Central (19:00 UTC)
+  workflow_dispatch:           # click "Run workflow" to test right now
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install gspread google-auth requests
+
+      - name: Send cumulative report
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          TELEGRAM_TOKEN: 8733411381:AAHK0TqW0SE6yRu3VwHpuUZcTeB9dsEejH0
+          CHAT_ID: 7691951053
+        run: python .github/scripts/cumulative_report.py
